@@ -1,0 +1,818 @@
+<!DOCTYPE html>
+<!-- browser client for repeated internet speed tests.
+    Reports results in browser page and to a remote server.
+  -->
+<!-- Requires HTML5 and Javascript ES6 with support for "strict mode".
+    For infomation about "strict mode" and "strict mode" support, see
+    https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Strict_mode
+  -->
+<html>
+    <head>
+        <style>
+            /* Table titles centered in headings, right-aligned in body */
+            tbody th {
+                text-align:right
+            }
+            /* Table data right-aligned in body */
+            tbody td {
+                text-align:right
+            }
+        </style>
+        <!-- Bootstrap stylesheet support https://getbootstrap.com/ -->
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
+            integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T"
+            crossorigin="anonymous">
+        <!--
+            Bootstrap is used to control layout via CSS, and by attaching styles
+            the <DIV> elements via their CLASS attribute.
+            Various parts of the page (and the corresponding elements) are laid
+            out in nested <DIV> elements, using column groups inside row groups.
+            If the display is wide enough, the the columns are laid out side by
+            side as one group.  If not, the columns are broken into groups of
+            fewer columns, and the groups are laid out vertically.
+            Bootstrap is also used to modify table formats.
+            Chareristics of some indivual elements are managed by definitions
+            in the <STYLE> element above, or in the STYLE attribute of the
+            element. 
+        -->
+        <title>NCF Repetitive Line Speed Test</title>
+        <script>
+// javascript client side for repeated internet speed tests
+    /* <![CDATA[        HTML parsing disabled.
+       Can use '<', '>', '&' in code, instead of '&lt;', '&gt;' and '&amp;'.
+     */
+
+'use strict';
+
+/*
+  The client and server exchange JSON strings that represent javascript objects.
+  The attributes of each object will be a subset of the attributes in the
+  object shown in comments at the top of file './server.js'.
+ */
+
+// protocol includes control data, so bit count will be more than eight times
+// the byte count, probably around nine times.  A factor between 8.5 and 10
+// will adjust for protocal bits and for dead time between packets.
+const bitsPerDataByte = 9;
+
+const twoDigit = new Intl.NumberFormat('en',{ minimumIntegerDigits: 2 });
+// const threeDigit = new Intl.NumberFormat('en',{ minimumIntegerDigits: 3 });
+const max3Decimal = new Intl.NumberFormat('en',{ maximumFractionDigits: 3 });
+
+var testRuns = 0;
+var firstRunTime = 0;
+var lastRunTime = 0;
+var nextRunTime = 0;
+var timeoutNextRunTime = null;
+var testBeginTime = undefined;
+
+// return a line of printable 7-bit characters, ending with '\n'
+// size includes '\n', returns '' for size <= 0
+function textLine(size)  {
+  const chunk = '0123456789';
+  const chunkLength = chunk.length;
+  const textLength = size - 1;            // leave room for '\n';
+  var n = textLength;
+  var line = '';
+  while (n > 0) {
+    line += chunk;
+    n -= chunkLength;
+  }
+  return line.slice(0, textLength) + '\n';  // make room for '\n'
+}
+
+var testReport = {     /* text output to text box (<PRE></PRE>)*/
+    clear : function() {
+                document.getElementById('testReport').innerHTML = '';
+            },
+    write : function(txt) {
+                document.getElementById('testReport').innerHTML += txt;
+            }
+}
+
+var testLog = {     /* text output to text box (<PRE></PRE>)*/
+    clear : function() {
+                document.getElementById('testLog').innerHTML = '';
+            },
+    write : function(txt) {
+                document.getElementById('testLog').innerHTML += txt;
+            },
+    error : function(error)  {
+                document.getElementById('testLog').innerHTML += (
+                    "Error :" + JSON.stringify(error) + '\n'
+                );
+            },
+};
+
+function getLocalConfig()   {
+    return {
+        downloadSize:  parseInt(document.getElementById('downloadSize').value),
+        uploadSize:    parseInt(document.getElementById('uploadSize').value),
+        interval:      parseInt(document.getElementById('interval').value),
+        externalIP:    (document.getElementById('externalIP').value == 'n/a'
+                         ? null : document.getElementById('externalIP').innerHTML),
+        testID:        document.getElementById('testID').innerHTML,
+    }
+}
+
+function disableTestButton() {
+    document.getElementById('testButton').disabled = true;
+    document.getElementById('testButton').innerHTML = 'Test Run in Progress';  
+}
+
+function enableTestButton() {
+    document.getElementById('testButton').disabled = false;
+    document.getElementById('testButton').innerHTML = 'Start Next Test Run';
+}
+
+function formatTimestamp(timestamp) {
+    var d = new Date(timestamp);
+    return (d.getFullYear()  + '-'
+            + twoDigit.format(1 + d.getMonth()) + '-'
+            + twoDigit.format(d.getDate())
+            + '\u00A0\u00A0'
+            + twoDigit.format(d.getHours()) + ':'
+            + twoDigit.format(d.getMinutes()) + ':'
+            + twoDigit.format(d.getSeconds()));
+}
+
+function setLastRunTime(time)   {
+    testRuns++;
+    document.getElementById('testRuns').innerHTML = testRuns;
+    lastRunTime = time;
+    document.getElementById('testLast').innerHTML = formatTimestamp(lastRunTime);
+    if (firstRunTime < 1){
+        firstRunTime = lastRunTime;
+        document.getElementById('testFirst').innerHTML = (
+                                            formatTimestamp(firstRunTime));
+    }
+}
+
+/* Set next runtime as offset from current time. This cancels the previously
+   scheduled next test but the user can click on the 'Start next Test' button to get an
+   immediate test. */
+function scheduleNextTestCycle()   {
+/* Test Messages */
+    clearTimeout(timeoutNextRunTime);
+    /* interval is held in a 'select' element as seconds */
+    var millisecInterval = 1000 * parseInt(
+                                  document.getElementById('interval').value);
+    var timestamp = Date.now();
+    nextRunTime = timestamp + millisecInterval;
+    document.getElementById('testNext').innerHTML = formatTimestamp(nextRunTime);
+    timeoutNextRunTime = setTimeout(runTestCycle, millisecInterval);
+}
+
+/* Test Messages */
+
+
+
+/* get info from server, allow other activity while waiting */
+async function beginTest()    {
+    const urlSetup = './begin';
+    var timestamp = Date.now();
+    var testInfo = {     // send configuration to server, reply will update
+        externalIP:         null,           // get vzlue from server
+        testID:             null,           // get value from server
+        testBegin:          null,           // get value from server
+        pathname:           urlSetup.slice(1),
+        clientTimestamp:    timestamp,
+    }
+    testReport.write('Begin:\n');
+
+    // send testInfo, pause until response
+    try {
+        var content = JSON.stringify(testInfo);
+        var response = await fetch(urlSetup, {
+            method: 'POST', // *GET, POST, PUT, DELETE, etc.
+            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': content.length,
+                'Accept': 'application/json',
+            },
+            body: content,
+        });
+    } catch(e) {
+        // request failed, but not from HTML errors
+        console.log(e);
+        testReport.write('    ' + e + '\n');
+        return Promise.reject(e);
+    }
+    if (response.status != 200) {   // no valid reply
+        var e = {'error': response.statusText,
+                'status': response.status,
+                'path': urlSetup,
+                'timestamp': timestamp};
+        testLog.write(JSON.stringify(e) + '\n');
+        testReport.write('error:\n    Test startup info not received from server.\n');
+        return Promise.reject(e);
+    }
+    try {
+        var reply = await response.json();  // valid reply will be JSON
+        testLog.write('Boo! ' + JSON.stringify(reply) + '\n');
+        document.getElementById('externalIP').innerHTML = reply.externalIP;
+        document.getElementById('testID').innerHTML = reply.testID;
+        testBeginTime = reply.testBegin;
+        document.getElementById('testBegin').innerHTML = formatTimestamp(testBeginTime);
+        testLog.write(JSON.stringify(reply) + '\n');
+        testReport.write( '    Test ID = ' + reply.testID
+                        + '\n    External IP = ' + reply.externalIP
+                        + '\n    Test Begin Time = '
+                        + document.getElementById('testBegin').innerHTML
+                        + '\n');
+    } catch(e) {
+        testLog.write(JSON.stringify(
+                {'error': 'Test startup info not in JSON format',
+                'path': urlSetup,
+                'timestamp': timestamp}) + '\n');
+        testReport.write('error:\n    Test startup info from server not in JSON format\n');
+        testReport.write('    ' + e.toString() + '\n');
+        return Promise.reject(e);
+    }
+    return Promise.resolve();
+}
+
+// run a download test and report the result back to serverr
+async function downloadTest()   {
+    const urlDownload = './download';
+    const urlDownreport = './downreport';
+    var timestamp = Date.now();
+    var localConfig = getLocalConfig();
+    var testInfo = {     // send configuration to server, reply will update
+        externalIP:         localConfig.externalIP,
+        testID:             localConfig.testID,
+        testBegin:          localConfig.testBegin,
+        testNumber:         testRuns,
+        pathname:           urlDownload.slice(1),
+        clientTimestamp:    timestamp,
+        interval:           localConfig.interval,
+        downloadLength:     localConfig.downloadSize,
+    };
+    testReport.write('\nDownload:\n');
+
+    // send testInfo, pause until response
+    try {
+        let content = JSON.stringify(testInfo);
+        testInfo.clientRequestBegin = Date.now();
+        var response = await fetch(urlDownload, {
+            method: 'POST', // *GET, POST, PUT, DELETE, etc.
+            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': content.length,
+                'Accept': 'text/plain, application/octet',
+            },
+            body: content,
+        });
+    } catch(e) {
+        // request failed, but not from HTML errors
+        console.log(e);
+        testReport.write('error:\n    Download failed.');
+        testReport.write('    ' + e + '\n');
+        return Promise.reject(e);
+    }
+    testInfo.clientRequestEnd = Date.now();
+    // when response is ready, extract a reply
+    if (response.status != 200) {   // no valid reply, download failed
+        var e = {'error': response.statusText,
+                'status': response.status,
+                'path': urlSetup,
+                'timestamp': timestamp};
+        testLog.write(JSON.stringify(e) + '\n');
+        testReport.write('error:\n    Download from server not completed.\n');
+        return Promise.reject(e);
+    }
+    try {
+        // rquest succeeded, read the download from the response
+        testInfo.clientResponseBegin = Date.now();
+        var reply = await response.blob();
+        // Download completed.
+        testInfo.clientResponseEnd = Date.now();
+        testInfo.downloadLength = reply.size;   // record the size
+        reply = '';     // not JSON, discard, and hint for garbage collection
+        // Record the download in the test log.
+        testLog.write(JSON.stringify(testInfo) + '\n');
+        // return value (for a resolved Promise) is now known and
+        // can be returned even if this function must bail out early
+        var downloadSummary = { // value to be returned in a resolved Promise
+            time:   testInfo.clientTimestamp,
+            size:   testInfo.downloadLength,
+            begin:  testInfo.clientRequestBegin,
+            end:    testInfo.clientResponseEnd,
+        }
+        // defer the return until the report to server succeeds or fails
+    } catch(e)  {
+        // Download failed.
+        console.log(e);
+        testReport.write('error:\n    Download failed.');
+        testReport.write('    ' + e + '\n');
+        return Promise.reject(e);
+    }
+
+    // report the download result to server
+    // function value will be returned in a resolved promaise whether the
+    // report to server succeeds or fails
+    testInfo.clientTimestamp = Date.now();          // other items unchanged
+    testInfo.pathname = urlDownreport.slice(1);     //
+    try {   // report download test to local log and to remote server
+        let content = JSON.stringify(testInfo);
+        var response = await fetch(urlDownreport, {
+            method: 'POST', // *GET, POST, PUT, DELETE, etc.
+            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': content.length,
+                'Accept': 'application/json',
+            },
+            body: content,
+        });
+    } catch(e) {
+        // request failed, but not from HTML errors
+        console.log(e);
+        testReport.write('error:\n    Failed to send download report to server.');
+        testReport.write('    ' + e + '\n');
+        return downloadSummary;
+    }
+    if (response.status != 200) {   // no valid reply
+        var e = {'error': response.statusText,
+                'status': response.status,
+                'path': urlSetup,
+                'timestamp': timestamp};
+        testLog.write(JSON.stringify(e) + '\n');
+        testReport.write('error:\n    Server did not acknowledge download report.\n');
+        return downloadSummary;
+    }
+    try {
+        var reply = await response.json();  // valid reply will be JSON text
+        testLog.write(JSON.stringify(reply) + '\n');
+    } catch(e)  {
+        testLog.write(JSON.stringify(
+                {'error': 'Test startup info not in JSON format',
+                'path': urlDownreport,
+                'timestamp': timestamp}) + '\n');
+        testReport.write('error:\n    Response from server not in JSON format\n');
+        testReport.write('    ' + e.toString() + '\n');
+        return downloadSummary;
+    }
+    return downloadSummary;
+}
+
+// variables used only by next function, but retain values between invocations
+let downloadTotalSeconds = 0;
+let downloadTotalMegabits = 0;
+let downloadMin = Number.MAX_SAFE_INTEGER;
+let downloadMax = 0;
+
+function reportDownload(data){
+    // console.log(JSON.stringify(data));
+    // data is bytes per millisecond (kilobytes per second)
+    // Transmitted bit count will be more than eight times the byte count
+    var megabits = (bitsPerDataByte * data.size/1000000);
+    var seconds = (data.end - data.begin)/1000;  // millisec
+    var megabitsPerSecond = megabits/seconds;
+    downloadTotalSeconds += seconds;
+    downloadTotalMegabits += megabits;
+    downloadMin = Math.min(megabitsPerSecond, downloadMin);
+    downloadMax = Math.max(megabitsPerSecond, downloadMax);
+    document.getElementById('downRecent').innerHTML = (
+                max3Decimal.format(megabitsPerSecond));
+    document.getElementById('downMin').innerHTML = max3Decimal.format(downloadMin);
+    document.getElementById('downMean').innerHTML = (
+                max3Decimal.format(downloadTotalMegabits / downloadTotalSeconds));
+    document.getElementById('downMax').innerHTML = max3Decimal.format(downloadMax);
+    testReport.write('    Time: ' + formatTimestamp(data.time)
+                + '\n    Megabytes: ' + max3Decimal.format(data.size/1000000)
+                + '\n    Seconds: ' + max3Decimal.format(seconds)
+                + '\n    Megabits/Second: '
+                    + max3Decimal.format(megabitsPerSecond)
+                + '\n');
+}
+
+// run an upload test and report the result back to serverr
+async function uploadTest()   {
+    const urlUpload = './upload';
+    const urlUpreport = './upreport';
+    var timestamp = Date.now();
+    var localConfig = getLocalConfig();
+    var testInfo = {     // will be sent to server, reply will update
+        externalIP:         localConfig.externalIP,
+        testID:             localConfig.testID,
+        testBegin:          localConfig.testBegin,
+        testNumber:         testRuns,
+        pathname:           urlUpload.slice(1),
+        clientTimestamp:    timestamp,
+        interval:           localConfig.interval,
+        uploadLength:       localConfig.uploadSize,
+    };
+    testReport.write('\nupload:\n');
+
+    // send a block of data, pause until response
+    try {
+        // create a block of data to upload
+        let maxLine = 80;
+        let n = testInfo.uploadLength;
+        let upData = [];
+        while (n > 0) {
+            let size = Math.min(n, maxLine);
+            upData.push(textLine(size));
+            n -= size;
+        }
+        let content = upData.join('');
+        upData = [];    // release original array for garbage collection
+        testInfo.clientRequestBegin = Date.now();
+        var response = await fetch(urlUpload, {
+            method: 'POST', // *GET, POST, PUT, DELETE, etc.
+            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            headers: {
+                'Content-Type': 'text/plain',
+                'Content-Length': content.length,
+                'Accept': 'application/json',
+            },
+            body: content,
+        });
+    } catch(e) {
+        // request failed, but not from HTML errors
+        console.log(e);
+        testReport.write('error:\n    Upload failed.');
+        testReport.write('    ' + e + '\n');
+        return Promise.reject(e);
+    }
+    testInfo.clientRequestEnd = Date.now();
+    // when response is ready, extract a reply
+    if (response.status != 200) {   // no valid reply, upload failed
+        var e = {'error': response.statusText,
+                'status': response.status,
+                'path': urlSetup,
+                'timestamp': timestamp};
+        testLog.write(JSON.stringify(e) + '\n');
+        testReport.write('error:\n    Upload to server not completed.\n');
+        return Promise.reject(e);
+    }
+    testInfo.clientResponseBegin = Date.now();
+    try {
+        var reply = await response.json();  // valid reply will be JSON text
+        // Upload completed.
+        // testLog.write(JSON.stringify(reply) + '\n');
+        testInfo.clientResponseEnd = Date.now();
+        testInfo.serverTimestamp = reply.serverTimestamp;
+        testInfo.serverRequestBegin = reply.serverRequestBegin;
+        testInfo.serverRequestEnd = reply.serverRequestEnd;
+        testInfo.serverResponseBegin = reply.serverResponseBegin;
+        testInfo.serverResponseEnd = reply.serverResponseEnd;
+        // Record the upload in the test log.
+        testLog.write(JSON.stringify(testInfo) + '\n');
+        // return value (for a resolved Promise) is now known and
+        // can be returned even if this function must bail out early
+        var uploadSummary = { // value to be returned in a resolved Promise
+            time:   testInfo.clientTimestamp,
+            size:   testInfo.uploadLength,
+            begin:  testInfo.clientRequestBegin,
+            end:    testInfo.clientResponseEnd,
+        }
+        // defer the return until the report to server succeeds or fails
+    } catch(e)  {
+        // Upload failed.
+        console.log(e);
+        testReport.write('error:\n    Upload failed.');
+        testReport.write('    ' + e + '\n');
+        return Promise.reject(e);
+    }
+
+    // report the upload result to server
+    // function value will be returned in a resolved promaise whether the
+    // report to server succeeds or fails
+    testInfo.clientTimestamp = Date.now();          // other items unchanged
+    testInfo.pathname = urlUpreport.slice(1);     //
+    try {   // report upload test to local log and to remote server
+        let content = JSON.stringify(testInfo);
+        var response = await fetch(urlUpreport, {
+            method: 'POST', // *GET, POST, PUT, DELETE, etc.
+            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            headers: {
+                'Content-Type': 'application/json',
+                'Content-Length': content.length,
+                'Accept': 'application/json',
+            },
+            body: content,
+        });
+    } catch(e) {
+        // request failed, but not from HTML errors
+        console.log(e);
+        testReport.write('error:\n    Failed to send upload report to server.');
+        testReport.write('    ' + e + '\n');
+        return uploadSummary;
+    }
+    if (response.status != 200) {   // no valid reply
+        var e = {'error': response.statusText,
+                'status': response.status,
+                'path': urlSetup,
+                'timestamp': timestamp};
+        testLog.write(JSON.stringify(e) + '\n');
+        testReport.write('error:\n    Server did not acknowledge upload report.\n');
+    }
+    try {
+        var reply = await response.json();  // octets or ASCII text
+        testLog.write(JSON.stringify(reply) + '\n');
+    } catch(e)  {
+        testLog.write(JSON.stringify(
+                {'error': 'Test startup info not in JSON format',
+                'path': urlUpreport,
+                'timestamp': timestamp}) + '\n');
+        testReport.write('error:\n    Response from server not in JSON format\n');
+        testReport.write('    ' + e.toString() + '\n');
+        return uploadSummary;
+    }
+    return uploadSummary;
+}
+
+// variables used only by next function, but retain values between invocations
+let uploadTotalSeconds = 0;
+let uploadTotalMegabits = 0;
+let uploadMin = Number.MAX_SAFE_INTEGER;
+let uploadMax = 0;
+
+function reportUpload(data){
+    // console.log(data);
+    // console.log(JSON.stringify(data));
+    // data is bytes per millisecond (kilobytes per second)
+    // Transmitted bit count will be more than eight times the byte count
+    var megabits = (bitsPerDataByte * data.size/1000000);
+    var seconds = (data.end - data.begin)/1000;  // millisec
+    var megabitsPerSecond = megabits/seconds;
+    uploadTotalSeconds += seconds;
+    uploadTotalMegabits += megabits;
+    uploadMin = Math.min(megabitsPerSecond, uploadMin);
+    uploadMax = Math.max(megabitsPerSecond, uploadMax);
+    document.getElementById('upRecent').innerHTML = (
+                max3Decimal.format(megabitsPerSecond));
+    document.getElementById('upMin').innerHTML = max3Decimal.format(uploadMin);
+    document.getElementById('upMean').innerHTML = (
+                max3Decimal.format(uploadTotalMegabits / uploadTotalSeconds));
+    document.getElementById('upMax').innerHTML = max3Decimal.format(uploadMax);
+    testReport.write('    Time: ' + formatTimestamp(data.time)
+                + '\n    Megabytes: ' + max3Decimal.format(data.size/1000000)
+                + '\n    Seconds: ' + max3Decimal.format(seconds)
+                + '\n    Megabits/Second: '
+                    + max3Decimal.format(megabitsPerSecond)
+                + '\n');
+}
+
+// do a round (or sequence) of download and upload tests
+async function runTestCycle(){
+    var timestamp = Date.now();
+    disableTestButton()
+    // testReport.write('Starting test cycle\n');
+    try {
+        var downloadSummary = await downloadTest();
+        reportDownload(downloadSummary);
+    } catch(e) {
+        testLog.write(JSON.stringify(
+                {'error': 'Download failed',
+                'timestamp': Date.now()}) + '\n');
+        testReport.write('error:\n    Download failed\n');
+        testReport.write('    ' + e.toString() + '\n');
+    }
+    try {
+        var uploadSummary = await uploadTest();
+        reportUpload(uploadSummary);
+    } catch(e) {
+        testLog.write(JSON.stringify(
+                {'error': 'Upload failed',
+                'timestamp': Date.now()}) + '\n');
+        testReport.write('error:\n    Upload failed\n');
+        testReport.write('    ' + e.toString() + '\n');
+    }
+    setLastRunTime(timestamp);
+    scheduleNextTestCycle();   // schedule the next round of tests
+    enableTestButton()
+}
+
+function Main()  {
+    console.log('body load completed');
+    beginTest().then(() => runTestCycle());
+}                       // exit, everything else is done by events and handlers
+
+    /* Use '&lt;', '&gt;' and '&amp;' to represent literal '<', '>', '&'.
+        ]]>         HTML parsing enabled
+     */
+// javascript client side for repeated internet speed tests
+        </script>
+    </head>
+    <body onload="Main()">
+        <script>
+            console.log('body load started');
+        </script>
+<div style="margin-left: 5px">
+    <div class="row">
+        <div class="col-md-4"></div>
+        <div class="col-md-8">
+        <h1>NCF Repetitive Internet Speed Test</h1>
+        </div>
+    </div>
+        <p>This page repeats a sequence of upload and download tests at
+            intervals, and reports a summary of the entire sequence of tests.
+            Repeated tests may be able to expose intermittently low speeds.
+        </p>
+        <p>If only a single test is required, the 
+            <a href="https://speedtest.ncf.ca/">NCF Speedtest</a>
+            will give a more informative (and somewhat more accurate) report.
+        </p>
+        <p>For the most accurate test results:</p>
+        <ul>
+            <li>This page should be the only open page in your browser.
+            </li>
+            <li>There should be no other activity on your internet connection,
+                because the estimated internet speed is based only on the data
+                received by this page.
+            </li>
+            <li>The test should run in a device that is connected by ethernet
+                cable, rather than by Wi-Fi, because interference from other
+                Wi-Fi access points can reduce your wireless speed to less
+                than the speed of your internet connection.
+            </li>
+        </ul>
+        <div class="row">
+            <div class="col-md-5">
+            <h2>Test Information</h2>
+            <table class="table-condensed">
+                <tbody>
+                    <tr>
+                        <th>External IP address</th>
+                        <td id="externalIP"></td>
+                    </tr>
+                    <tr>
+                        <th>Test ID</th>
+                        <td id="testID"></td>
+                    </tr>
+                    <tr>
+                        <th>Test Begin</th>
+                        <td id="testBegin"></td>
+                    </tr>
+                    </tbody>
+            </table>
+            </div>
+        </div>
+<hr>
+    <div class="row">
+        <div class="col-md-5">
+        <h2>Test Configuration</h2>
+        <table class="table-condensed">
+            <tbody>
+                <tr>
+                    <th>Download size</th>
+                    <td>
+                        <select id="downloadSize">
+                            <!-- sizes are in bytes (octets) -->
+                            <option value="5000000">2 Megabytes (Not recommended) </option>
+                            <option value="2000000">5 Megabytes</option>
+                            <option value="10000000" selected="">10 Megabytes (Default) </option>
+                            <option value="20000000">20 Megabytes</option>
+                            <option value="50000000">50 Megabytes</option>
+                            <option value="100000000">100 Megabytes (Not recommended) </option>
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Upload size</th>
+                    <td>
+                        <select id="uploadSize">
+                            <!-- sizes are in bytes (octets) -->
+                            <option value="500000">500 Kilobytes (Not recommended) </option>
+                            <option value="1000000">1 Megabyte</option>
+                            <option value="2000000" selected="">2 Megabytes (Default) </option>
+                            <option value="5000000">5 Megabytes</option>
+                            <option value="10000000">10 Megabytes</option>
+                            <option value="20000000">20 Megabytes (Not recommended) </option>
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <th>Interval between tests</th>
+                    <td>
+                        <select id="interval" onchange="scheduleNextTestCycle()">
+                            <!-- time values are in seconds -->
+                            <option value="90">1.5 Minutes (Not recommended) </option>
+                            <option value="300">5 Minutes (Not recommended) </option>
+                            <option value="900">15 Minutes</option>
+                            <option value="1800">30 Minutes</option>
+                            <option value="3600" selected="">1 Hour (Default) </option>
+                            <option value="7200">2 Hours</option>
+                            <option value="14400">4 Hours</option>
+                        </select>
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+        <div class="col-md-5">
+        <p>Notes</p>
+        <ul>
+            <li>"Not recommended" choices are intended for testing in special circumstances. </li>
+            <li>The number of bits transmitted is between 9 and 10 times the number of
+                bytes because each transmission includes control information with the data. </li>
+            <li>Changing the interval changes the time of the next test.  Clicking the button below 
+                will start a new test.</li>
+        </ul>
+        </div>
+    </div>
+<hr>
+    <div class="row">
+        <div class="col-md-5">
+        <h2>Test History</h2>
+        <table class="table-condensed">
+            <thead>
+                <tr>
+                    <th colspan="3">
+                        Estimated Speeds (Megabits per second)
+                    </th>
+                </tr>
+                <tr>
+                    <th></th>
+                    <th>Download</th>
+                    <th>Upload</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th>Most Recent</th>
+                    <td id="downRecent">n/a</td>
+                    <td id="upRecent">n/a</td>
+                </tr>
+                <tr>
+                    <th>Minimum</th>
+                    <td id="downMin">n/a</td>
+                    <td id="upMin">n/a</td>
+                </tr>
+                <tr>
+                    <th>Average</th>
+                    <td id="downMean">n/a</td>
+                    <td id="upMean">n/a</td>
+                </tr>
+                <tr>
+                    <th>Maximum</th>
+                    <td id="downMax">n/a</td>
+                    <td id="upMax">n/a</td>
+                </tr>
+            </tbody>
+        </table>
+        </div>
+        <div class="col-md-5">
+        <p>Note</p>
+        <ul> 
+            <li>The number of bits in a download or upload is about 9 to 10 times the number of
+                bytes. </li>
+            <li>The speeds shown may over-estimate or under-estimate the actual speeds. </li>
+        </ul>
+        </div>
+    </div>
+<hr>
+    <div class="row">
+        <div class="col-md-5">
+        <table class="table-condensed">
+            <thead>
+                <tr>
+                    <th colspan="2">Test Runs</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <th>Runs</th>
+                    <td id="testRuns">0</td>
+                </tr>
+                <tr>
+                    <th>First Run</th>
+                    <td id="testFirst">0000-00-00 00:00</td>
+                </tr>
+                <tr>
+                    <th>Last Run</th>
+                    <td id="testLast">n/a</td>
+                </tr>
+                <tr>
+                    <th>Next Run</th>
+                    <td id="testNext">n/a</td>
+                </tr>
+            </tbody>
+        </table>
+<hr>
+ <!-- Button disabled to prevent start of test cycle during initialization -->
+ <button id="testButton" type="button" class="btn btn-primary btn-sm"
+     disabled onclick="runTestCycle();">
+ </button>
+        </div>
+    </div>
+<hr>
+        <h2>Test Report
+        </h2>
+        <pre id="testReport"
+            style="border:2px solid;height:200px;overflow:scroll;"
+            ></pre>
+<hr>
+        <h2>Test Log
+        </h2>
+        <pre id="testLog"
+            style="border:2px solid;height:300px;overflow:scroll;"
+            ></pre>
+</div>
+    </body>
+</html>
