@@ -48,7 +48,7 @@ const path = require('path')
 const fs = require('fs');
 const stream = require('stream');
 
-const hostname = 'localhost';
+const hostname = '0.0.0.0';
 const port = 8080;
 const bitsPerDataByte = 9
 
