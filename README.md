@@ -80,7 +80,7 @@ A command line client is invoked from a terminal window or, in a computer with n
 
 ## Messages Between Server and Client
 
-Messages are carried in the body of requests and responses.
+Messages are carried in the body of POST requests and responses.
 
 The the body of a reply to a request for a client web page will be the web page.
 
@@ -88,8 +88,25 @@ The body of a reply to an erroneous request will be a web page withwith some inf
 
 The body of an upload request and of a download response is printable text of the length specified in the request for upload or download.
 
-The body of all other requests and responses will be a JSON string representing a javascript object.  The attributes of that object will be a subset of the attifibutes shown in comments at the top of the [server code](server.js).
+The body of all other requests and responses will be a JSON string representing a javascript object.  The attributes of that object will be a subset of the attifibutes shown in comments at the top of the [server code](server.js).  Most bodies will include some of the [message time points](#request---response-message-time-points) below.
 
 Downloads and uploads each involve two requests.  The first request transfers test data, so no message is carried in one direction (no message down with a download, no message up with an upload).  The client retains state and makes a second request, and the message that did not go in the first exchange is carried in the second exchange.
 
 The first and second exchange are not recognized as a pair by the server, which does not maintain state.  However, they carry identifying information that would allow a post-processor to recognize them as a pair.
+
+### Request - Response Message Time Points
+
+The table below shows the approximate sequence of events during one cycle in which the client sends a request and receives a response.  The relative sequence of client and server events may vary slightly, depending on time delays at various points on the path from client to server and back.
+
+| Client Time Point | Activity | Server Time Point|
+| :---: | :---: | :---:|
+| clientTimestamp | Prepare upload POST request | |
+| clientRequestBegin | Begin sending POST request | |
+| | POST header received | serverTimestamp |
+| | Begin receiving POST body | serverRequestBegin |
+| clientRequestEnd | Finish sending POST request | |
+| | Finish receiving POST body | serverRequestEnd |
+| | Starf respone | serverResponseBegin
+| | Finsh sending response | serverResponseEnd
+| clienResponseBegin | Begin receiving response | |
+| clienResponseEnd | Finish receiving response | |
