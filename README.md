@@ -66,7 +66,7 @@ A [web page client](main.html) is sent as a response to a request for the base U
 
 _Not yet implemented_.
 
-A command line client is invoked from a terminal window or, in a computer with no display and keyboard, from a script.  The client uses the Python 3 library 'urllib.request', maintains state between requests, and:
+A [command line client](client.py) is invoked from a terminal window or, in a computer with no display and keyboard, from a script.  The client uses the Python 3 library 'urllib.request', maintains state between requests, and:
 
 * Begins by requesting initial data from the server
 * At intervals:
@@ -110,3 +110,9 @@ The table below shows the approximate sequence of events during one cycle in whi
 | | Finsh sending response | serverResponseEnd
 | clienResponseBegin | Begin receiving response | |
 | clienResponseEnd | Finish receiving response | |
+
+## Utilities
+
+### Convert JSON log data to CSV
+
+[json2csv.py](json2csv.py) convers each line of input from a simple JSON dictionary of strings and numbers to a row of Comma-Separated-Values.  Optinally, it will convert time values from a integer representing milliseonds to a string in the form YYYY-MM-DD hh:mm:ss.sss.
