@@ -65,7 +65,7 @@ const pingPath = '/echo';
 // running server will look for some resources arter script has completed
 const scriptpath = module.filename ? module.filename : null;
 const scriptdir = path.dirname(scriptpath)  // throw exception if no path
-const mainPage = new URL('file://' + path.resolve(scriptdir, 'main.html'));
+const clientPage = new URL('file://' + path.resolve(scriptdir, 'client.html'));
 const echoPage = new URL('file://' + path.resolve(scriptdir, 'echo.html'));;
 const e404Page = new URL('file://' + path.resolve(scriptdir, 'e404.html'))
 const e418PostPage = new URL('file://' + path.resolve(scriptdir, 'e418.html'))
@@ -200,7 +200,7 @@ function reply_418Post(req, res, info)  {
 
 // reply to request for the normal web interface
 function reply_slash(req, res, info)  {
-  sendPage(req, res, info, mainPage);
+  sendPage(req, res, info, clientPage);
 };
 
 // reply to request for a development and test web interface
@@ -413,8 +413,10 @@ server.on('error', (err) => {
 
 }).on('listening', () => {
   // the .listen() callback runs after this event
+  const startTime = Date.now();
   logStream.write(JSON.stringify(
-    { startTime : Date.now()
+    { serverTimestamp : startTime,
+      startTime : startTime
     }) + '\n');
 
 });       // last server event handler
@@ -422,11 +424,13 @@ server.on('error', (err) => {
 // start server
 
 server.listen(port, hostname, () => {
-  logStream.write(JSON.stringify({
-    timestamp : Date.now(),
+  const message = (JSON.stringify({
+    serverTimestamp : Date.now(),
     hostname : hostname,
     port : port,
     scriptpath : scriptpath
   }) + '\n');
+  logStream.write(message);
+  errorStream.write(message);
 
 });

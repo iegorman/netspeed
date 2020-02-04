@@ -112,6 +112,7 @@ function getLocalConfig()   {
         externalIP:    (document.getElementById('externalIP').value == 'n/a'
                          ? null : document.getElementById('externalIP').innerHTML),
         testID:        document.getElementById('testID').innerHTML,
+        testBegin:     testBeginTime,
     }
 }
 
@@ -210,7 +211,6 @@ async function beginTest()    {
     }
     try {
         var reply = await response.json();  // valid reply will be JSON
-        testLog.write('Boo! ' + JSON.stringify(reply) + '\n');
         document.getElementById('externalIP').innerHTML = reply.externalIP;
         document.getElementById('testID').innerHTML = reply.testID;
         testBeginTime = reply.testBegin;
