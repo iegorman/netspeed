@@ -21,7 +21,6 @@ class JsonToCsv(object):
     testInfo = (
         "testID",
         "externalIP",
-        "testBegin",
         "testNumber",
         "pathname",
         "interval",
@@ -32,11 +31,12 @@ class JsonToCsv(object):
     # millisecond times from Unix epoch
     # will be formatted as either YYYY-MM-DD hh:mm:ss.sss or as str(int)
     times = (
+        "testBegin",
         "clientTimestamp",
         "clientRequestBegin",
         "clientRequestEnd",
-        "clienResponseBegin",
-        "clienResponseEnd",
+        "clientResponseBegin",
+        "clientResponseEnd",
         "serverTimestamp",
         "serverRequestBegin",
         "serverRequestEnd",
