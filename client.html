@@ -185,14 +185,12 @@ async function beginTest()    {
     try {
         var content = JSON.stringify(testInfo);
         var response = await fetch(urlSetup, {
-            method: 'POST', // *GET, POST, PUT, DELETE, etc.
-            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Content-Length': content.length,
-                'Accept': 'application/json',
+                'Accept': 'application/json'
             },
-            body: content,
+            body: content
         });
     } catch(e) {
         // request failed, but not from HTML errors
@@ -253,17 +251,15 @@ async function downloadTest()   {
 
     // send testInfo, pause until response
     try {
-        let content = JSON.stringify(testInfo);
         testInfo.clientRequestBegin = Date.now();
+        let content = JSON.stringify(testInfo);
         var response = await fetch(urlDownload, {
-            method: 'POST', // *GET, POST, PUT, DELETE, etc.
-            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Content-Length': content.length,
-                'Accept': 'text/plain, application/octet',
+                'Accept': 'text/plain, application/octet'
             },
-            body: content,
+            body: content
         });
     } catch(e) {
         // request failed, but not from HTML errors
@@ -318,14 +314,12 @@ async function downloadTest()   {
     try {   // report download test to local log and to remote server
         let content = JSON.stringify(testInfo);
         var response = await fetch(urlDownreport, {
-            method: 'POST', // *GET, POST, PUT, DELETE, etc.
-            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Content-Length': content.length,
-                'Accept': 'application/json',
+                'Accept': 'application/json'
             },
-            body: content,
+            body: content
         });
     } catch(e) {
         // request failed, but not from HTML errors
@@ -422,14 +416,12 @@ async function uploadTest()   {
         upData = [];    // release original array for garbage collection
         testInfo.clientRequestBegin = Date.now();
         var response = await fetch(urlUpload, {
-            method: 'POST', // *GET, POST, PUT, DELETE, etc.
-            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            method: 'POST',
             headers: {
                 'Content-Type': 'text/plain',
-                'Content-Length': content.length,
-                'Accept': 'application/json',
+                'Accept': 'application/json'
             },
-            body: content,
+            body: content
         });
     } catch(e) {
         // request failed, but not from HTML errors
@@ -487,14 +479,12 @@ async function uploadTest()   {
     try {   // report upload test to local log and to remote server
         let content = JSON.stringify(testInfo);
         var response = await fetch(urlUpreport, {
-            method: 'POST', // *GET, POST, PUT, DELETE, etc.
-            cache: 'no-cache', // *default, no-cache, reload, force-cache, only-if-cached
+            method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Content-Length': content.length,
-                'Accept': 'application/json',
+                'Accept': 'application/json'
             },
-            body: content,
+            body: content
         });
     } catch(e) {
         // request failed, but not from HTML errors

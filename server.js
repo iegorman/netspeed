@@ -97,7 +97,7 @@ logStream.on('error', (err) => {
   console.error({ errorTime : Date.now() });
   console.error(err);
 });
-const errorStream = fs.createWriteStream('/dev/stdout', { autoClose : false });
+const errorStream = fs.createWriteStream('/dev/stderr', { autoClose : false });
 errorStream.on('error', (err) => {
   console.error({ errorTime : Date.now() });
   console.error(err);

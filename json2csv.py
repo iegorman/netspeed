@@ -86,7 +86,6 @@ class JsonToCsv(object):
         csvWriter.writerow(field)
         line = lineReader.readline(MaxJsonLength)
         while len(line) > 0:
-            # print(line, file=sys.stdout)
             value = json.loads(line.strip())    # JSON to dictionary
             field = []      # column values for output to CVS
             for name in cls.testInfo:
