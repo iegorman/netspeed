@@ -50,7 +50,6 @@ const stream = require('stream');
 
 const hostname = '0.0.0.0';
 const port = 8080;
-const bitsPerDataByte = 9
 
 // URLs relative to server
 // See request 'end' event in http.createServer() 

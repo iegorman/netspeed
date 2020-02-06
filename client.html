@@ -50,10 +50,9 @@
   object shown in comments at the top of file './server.js'.
  */
 
-// protocol includes control data, so bit count will be more than eight times
-// the byte count, probably around nine times.  A factor between 8.5 and 10
-// will adjust for protocal bits and for dead time between packets.
-const bitsPerDataByte = 9;
+// count only the bits in actual data, ignore protocal bits
+// protocol bit are a small proportion of the message exceopt in smalll packets
+const bitsPerDataByte = 8;
 
 const twoDigit = new Intl.NumberFormat('en',{ minimumIntegerDigits: 2 });
 // const threeDigit = new Intl.NumberFormat('en',{ minimumIntegerDigits: 3 });
@@ -654,8 +653,8 @@ function Main()  {
                     <td>
                         <select id="downloadSize">
                             <!-- sizes are in bytes (octets) -->
-                            <option value="5000000">2 Megabytes (Not recommended) </option>
-                            <option value="2000000">5 Megabytes</option>
+                            <option value="2000000">2 Megabytes (Not recommended) </option>
+                            <option value="5000000">5 Megabytes</option>
                             <option value="10000000" selected="">10 Megabytes (Default) </option>
                             <option value="20000000">20 Megabytes</option>
                             <option value="50000000">50 Megabytes</option>

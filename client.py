@@ -31,10 +31,9 @@ class Client(object):
     defaultReport = sys.stdout          # summary reports and errors
     defaultLog = sys.stderr             # message log
 
-    # protocol includes control data, so bit count will be more than eight
-    # times the byte count, probably around nine times.  A factor between 8.5
-    # and 10 will adjust for protocal bits and for dead time between packets.
-    bitsPerDataByte = 9
+    # count only the bits in actual data, ignore protocal bits
+    # protocol bit are a small proportion of message exceopt in smalll packets
+    bitsPerDataByte = 8
 
     @classmethod
     def js_time(cls):
@@ -180,28 +179,54 @@ class Client(object):
                            self.serverURL])) from e
         return
 
-    def download(self):
+    def downreport(self, params):
         """
-        Run a download test and report result to server.
+        Report the result of a download test to the server.
 
-        There are two exchanges.  The first exchange does the download and
-        reports partial information to the server.  The second exchange
-        includes information that becomes available after completion of the
-        first exchange, and reports full information to the server.
+        This is the second stage of a download test and is invoked by
+        download()
+
+        Takes a dictionary of of informations and returns a similar
+        dictionary from the server.
         """
         timestamp = self.js_time()
-        # allocation of data to make the request
-        params = collections.OrderedDict((
-                ('externalIP', self._externalIP),
-                ('testID', self._testID),
-                ('testBegin', self._testBegin),
-                ('testNumber', self._testNumber),
-                ('pathname', self._downloadPath),
-                ('clientTimestamp', timestamp),
-                ('interval', self._interval),
-                ('downloadLength', self._downloadLength),
-        ))
-        # pre-allocate some integers for later addition to data for yhe log
+        try:
+            params['clientTimestamp'] = timestamp
+            params['pathname'] = self._downreportPath
+            # prepare the request
+            content = bytes(json.dumps(params), 'utf-8')
+            url = self.serverURL + self._downreportPath
+            request = urllib.request.Request(
+                        url,
+                        headers = {
+                            'Content-Type': 'application/json',
+                            # Content-Length is automatically calculated
+                            'Accept': 'application/json',
+                        },
+                        data=content,
+                        method='POST'
+                        )
+            with urllib.request.urlopen(request) as f:
+                data = f.read(4096).decode(encoding='iso-8859-1',
+                                            errors='replace')
+        except Exception as e:
+            raise RuntimeError('timestamp=' + ': '.join([str(timestamp),
+                           'Failed to report download result to server at',
+                           self.serverURL])) from e
+        # data should be JSON text in canonical form
+        return json.loads(data)
+
+    def download(self, params):
+        """
+        Run a download test with data received from the server.
+
+        This is the first stage of a download test and is invoked by
+        download()
+
+        Takes a dictionary of of informations and returns a modified
+        dictionary.
+        """
+        # pre-allocate some integers for later addition to data for the log
         # this may avoid triggerring a GC cycle via a dictionary update
         clientRequestBegin = 0
         clientRequestEnd = 0
@@ -233,31 +258,66 @@ class Client(object):
                 while size > 0:
                     downloadLength += size
                     size = len(f.read(1024))
-                clientResponseEnd = self.js_time()
-                # update data report and print as JSON to the log
-                params.setdefault('downloadLength', downloadLength)
-                params.setdefault('clientRequestBegin', clientRequestBegin)
-                params.setdefault('clientRequestEnd', clientRequestEnd)
-                params.setdefault('clientResponseBegin', clientResponseBegin)
-                params.setdefault('clientResponseEnd', clientResponseEnd)
-                print(json.dumps(params), file=self._log)
-                # create and print a human-readable repot
-                megabytes = math.floor(downloadLength / 1_000_000)
-                seconds = (params['clientResponseEnd']
-                                - params['clientResponseBegin']) / 1_000
-                print( 'Download\n    Time: ' + self.js_clock(timestamp)
-                        + '\n    Megabytes: ' + str(megabytes)
-                        + '\n    Seconds: ' + str(seconds)
-                        + '\n    Megabits / Second: ' + str(round(
-                            (self.bitsPerDataByte * megabytes / seconds), 3))
-                        + '\n', file=self._report)
+            clientResponseEnd = self.js_time()
+            # update data report and print as JSON to the log
+            params.setdefault('downloadLength', downloadLength)
+            params.setdefault('clientRequestBegin', clientRequestBegin)
+            params.setdefault('clientRequestEnd', clientRequestEnd)
+            params.setdefault('clientResponseBegin', clientResponseBegin)
+            params.setdefault('clientResponseEnd', clientResponseEnd)
         except Exception as e:
             raise RuntimeError('timestamp=' + ': '.join([str(timestamp),
-                           'Failed to begin communication with server at',
+                           'Failed to download data from server at',
                            self.serverURL])) from e
+        return params
+
+    def downloadTest(self):
+        """
+        Run a download test and report result to server.
+
+        There are two exchanges.  The first exchange does the download and
+        reports partial information to the server.  The second exchange
+        includes information that becomes available after completion of the
+        first exchange, and reports full information to the server.
+        """
+
+        timestamp = self.js_time()
+        # allocation of data to make the request
+        params = collections.OrderedDict((
+                ('externalIP', self._externalIP),
+                ('testID', self._testID),
+                ('testBegin', self._testBegin),
+                ('testNumber', self._testNumber),
+                ('pathname', self._downloadPath),
+                ('clientTimestamp', timestamp),
+                ('interval', self._interval),
+                ('downloadLength', self._downloadLength),
+        ))
+
+        params = self.download(params)
+
+        # computer-readable JSON report
+        print(json.dumps(params), file=self._log)
+        # human-readable repot
+        megabytes = math.floor(params['downloadLength'] / 1_000_000)
+        seconds = (params['clientResponseEnd']
+                        - params['clientResponseBegin']) / 1_000
+        print( 'Download\n    Time: '
+                + self.js_clock(params['clientTimestamp'])
+                + '\n    Megabytes: ' + str(megabytes)
+                + '\n    Seconds: ' + str(seconds)
+                + '\n    Megabits / Second: ' + str(round(
+                    (self.bitsPerDataByte * megabytes / seconds), 3))
+                + '\n', file=self._report)
+
+        params = self.downreport(params)
+
+        # computer-readable JSON report
+        print(json.dumps(params), file=self._log)
+
         return
 
-    def upload(self):
+    def uploadTest(self):
         """
         Runs upload test and report result to server.
         """
@@ -267,8 +327,8 @@ class Client(object):
         """
         Run a single set of download and upload tests.
         """
-        self.download()
-        self.upload()
+        self.downloadTest()
+        self.uploadTest()
 
     def repeat_test_cycle(self):
         """Repeat a cycle of tests at intervals.
