@@ -3,13 +3,14 @@
 
 import os
 import sys
+import collections
 import csv
 import getopt
 import json
 import math
 import time
 
-class JsonToCsv(object):
+class JsonFormat(object):
     """
     Copy and transform JSON text to CSV text, with headings.
 
@@ -63,7 +64,7 @@ class JsonToCsv(object):
         super().__init__()
 
     @classmethod
-    def copy(cls, lineReader, csvWriter, isRaw=False):
+    def copy(cls, lineReader, writer, isRaw=False, isJsonFormat=False):
         """
         Transform JSON input text to CSV output text, with headings.
 
@@ -73,37 +74,98 @@ class JsonToCsv(object):
 
         csvWriter is a csv.writer()
         """
-        if isRaw:
-            format = str
-        else:
-            format = cls.formatTime
         MaxJsonLength = 4096        # including a newline
-        field = []      # column headingss for output to CVS
-        for name in cls.testInfo:
-            field.append(name)
-        for name in cls.times:
-            field.append(name)
-        csvWriter.writerow(field)
+
+        # time format
+        if isRaw:
+            format = str            # milliseconds from Unix epoch as str
+        else:
+            format = cls.formatTime # YYYY-MM-DD hh:mm:ss.sss Local
+
+        # output format
+        if isJsonFormat:
+            writeDict = cls.JsonWriter(writer, format, cls.testInfo,
+                                        cls.times).writeDict
+        else:
+            writeDict = cls.CvsWriter(writer, format, cls.testInfo,
+                                        cls.times).writeDict
+
+        # format and copy
         line = lineReader.readline(MaxJsonLength)
         while len(line) > 0:
-            value = json.loads(line.strip())    # JSON to dictionary
+            strippedLine = line.strip()
+            if strippedLine == '':
+                value = collections.OrderedDict()   # allow blank lines
+            else:
+                value = json.loads(line.strip())    # JSON to ordered dictionary
+            writeDict(value)
+            line = lineReader.readline(MaxJsonLength)
+
+    class CvsWriter(object):
+        """
+        Write OrderedDicts as rows of CSV values under re-ordered headings.
+        """
+        def __init__(self, writer, format, testInfo, times):
+            self.csvwriter = csv.writer(writer)
+            self.format = format
+            self.testInfo = testInfo
+            self.times = times
+            field = []      # column headings for output to CVS
+            for name in self.testInfo:
+                field.append(name)
+            for name in self.times:
+                field.append(name)
+            self.csvwriter.writerow(field)
+
+        def writeDict(self, value):
             field = []      # column values for output to CVS
-            for name in cls.testInfo:
+            for name in self.testInfo:
                 if name in value:
                     field.append(str(value[name]))
                 else:
                     field.append('')
-            for name in cls.times:
+            for name in self.times:
                 if name in value:
-                    field.append(format(value[name]))
+                    field.append(self.format(value[name]))
                 else:
                     field.append('')
-            csvWriter.writerow(field)
-            line = lineReader.readline(MaxJsonLength)
+            # omit unexpected items to keep all rows same length
+            self.csvwriter.writerow(field)
+
+    class JsonWriter(object):
+        """
+        Write OrderedDicts as Json object literals, with names re-ordered.
+        """
+        def __init__(self, writer, format, testInfo, times):
+            self.writer = writer
+            self.format = format
+            self.testInfo = testInfo
+            self.times = times
+
+        def writeDict(self, value):
+            if len(value) < 1:
+                self.writer.write(json.dumps(value) + '\n')
+                return
+            newdict = collections.OrderedDict()
+            for name in self.testInfo:
+                if name in value:
+                    newdict.setdefault(name, value[name])
+                else:
+                    newdict.setdefault(name, None)
+            for name in self.times:
+                if name in value:
+                    newdict.setdefault(name, self.format(value[name]))
+                else:
+                    newdict.setdefault(name, None)
+            # copy unexpected items as-is
+            for name in value:
+                if not name in newdict:
+                    newdict.setdefault(name, value[name])
+            self.writer.write(json.dumps(newdict) + '\n')
 
 if __name__ == "__main__":
     cmdline = getopt.getopt(sys.argv[1:], 'h',
-                            longopts=['help', 'raw'])
+                            longopts=['help', 'json', 'raw'])
     argv = cmdline[1]
     opt = dict(cmdline[0])
 
@@ -114,11 +176,17 @@ if __name__ == "__main__":
                 file=sys.stderr)
         print("       Input: JSON name-value pairs, one JSON per line",
                 file=sys.stderr)
-        print("       Output: CSV file with JSON names as headings",
+        print("       Output: CSV file with reordered JSON names as headings",
+                file=sys.stderr)
+        print("               or JSON file with reordered JSON names",
+                file=sys.stderr)
+        print("       Unexpected JSON items will be omitted from CSV output",
                 file=sys.stderr)
         print("   Options:",
                 file=sys.stderr)
         print("       -h|--help     print this message",
+                file=sys.stderr)
+        print("       --json        output JSON instead of CSV",
                 file=sys.stderr)
         print("       --raw         do not format times",
                 file=sys.stderr)
@@ -129,6 +197,7 @@ if __name__ == "__main__":
         exit(1)
 
     isRaw = ('--raw' in opt)
+    isJsonFormat = ('--json' in opt)
 
     # Input text source
     if len(argv) > 0:
@@ -138,8 +207,7 @@ if __name__ == "__main__":
 
     # Output columns of CSV data from the JSON input.
     try:
-        csvWriter = csv.writer(sys.stdout)
-        JsonToCsv.copy(lineReader, csvWriter, isRaw)
+        JsonFormat.copy(lineReader, sys.stdout, isRaw, isJsonFormat)
     finally:
         if not lineReader is sys.stdin:
             lineReader.close()
