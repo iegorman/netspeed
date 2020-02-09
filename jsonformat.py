@@ -1,5 +1,5 @@
 #!/usr/bin/python3
-# Connmand line client for repeated internet speed tests.
+# Reformat JSON as CSV or JSON with items in a specific order
 
 import os
 import sys
@@ -12,7 +12,7 @@ import time
 
 class JsonFormat(object):
     """
-    Copy and transform JSON text to CSV text, with headings.
+    Copy and transform JSON text to CSV text or reformatted JSON text.
 
     Each input line is a one-level JSON dictionary of strings and integers.
     """
@@ -30,7 +30,8 @@ class JsonFormat(object):
     )
 
     # millisecond times from Unix epoch
-    # will be formatted as either YYYY-MM-DD hh:mm:ss.sss or as str(int)
+    # will be formatted as either as local YYYY-MM-DD hh:mm:ss.sss
+    # or as integer milliseconds
     times = (
         "testBegin",
         "clientTimestamp",
@@ -48,9 +49,10 @@ class JsonFormat(object):
     @classmethod
     def formatTime(cls, milliseconds):
         """
-        Format javascript time from Unix epoch to local 'YYYY-MM-DD hh:mm:ss'.
+        Format integer millesecond time from Unix epoch to local
+        YYYY-MM-DD hh:mm:ss.sss.
 
-        This is the time in the local time zone.
+        This will be the time in the local time zone.
         """
         secondsInt = math.floor(milliseconds / 1000)
         secondsFrac = '.' + str(milliseconds)[-3::1]
@@ -72,25 +74,21 @@ class JsonFormat(object):
         Each input line is a one-level JSON dictionary of strings and
         integers.
 
-        csvWriter is a csv.writer()
+        writer is any object with a write() method that accepts a
+                string and does not append a terninaiing newline.
+        isRaw       Whether times are to be output without reformatting
+        isJsonFormat    Whether output should be JSON instead of CSV
         """
         MaxJsonLength = 4096        # including a newline
 
-        # time format
-        if isRaw:
-            format = str            # milliseconds from Unix epoch as str
-        else:
-            format = cls.formatTime # YYYY-MM-DD hh:mm:ss.sss Local
-
         # output format
-        if isJsonFormat:
-            writeDict = cls.JsonWriter(writer, format, cls.testInfo,
-                                        cls.times).writeDict
-        else:
-            writeDict = cls.CvsWriter(writer, format, cls.testInfo,
-                                        cls.times).writeDict
+        if isJsonFormat:    # JSON
+            writeDict = cls.JsonWriter(writer).writeDict
+        else:               # CSV
+            writeDict = cls.CsvWriter(writer, cls.testInfo, cls.times
+                                        ).writeDict
 
-        # format and copy
+        # create and output a dictionary from eadh input line (JSON literal)
         line = lineReader.readline(MaxJsonLength)
         while len(line) > 0:
             strippedLine = line.strip()
@@ -98,70 +96,69 @@ class JsonFormat(object):
                 value = collections.OrderedDict()   # allow blank lines
             else:
                 value = json.loads(line.strip())    # JSON to ordered dictionary
-            writeDict(value)
+
+            newdict = collections.OrderedDict()
+            for name in cls.testInfo:
+                if name in value:
+                    newdict.setdefault(name, value[name])
+            for name in cls.times:
+                if name in value:
+                    if isRaw:
+                        # milliseconds from Unix epoch
+                        newdict.setdefault(name, value[name])
+                    else:
+                        # human-readable local date and time
+                        newdict.setdefault(name, cls.formatTime(value[name]))
+            if isJsonFormat:
+                # names not listed in CSV headings
+                # Copy as-is to JSON, but not to CSV
+                # Each CSV row has same number of columns, no extra columns
+                for name in value:
+                    if not name in newdict:
+                        newdict.setdefault(name, value[name])
+
+            writeDict(newdict)
+
             line = lineReader.readline(MaxJsonLength)
 
-    class CvsWriter(object):
+    class CsvWriter(object):
         """
-        Write OrderedDicts as rows of CSV values under re-ordered headings.
+        Write OrderedDicts as rows of CSV values under headings in order.
+
+        Output uses minimal CVS quoting, quoting only the strings that
+        contain characters that have special meaning to CSV.
         """
-        def __init__(self, writer, format, testInfo, times):
+        def __init__(self, writer, testInfo, times):
             self.csvwriter = csv.writer(writer)
-            self.format = format
-            self.testInfo = testInfo
-            self.times = times
-            field = []      # column headings for output to CVS
-            for name in self.testInfo:
-                field.append(name)
-            for name in self.times:
+            self.names = list(testInfo)
+            self.names.extend(list(times))      # names of expected fields
+            field = []      # column headings of expected fields
+            for name in self.names:
                 field.append(name)
             self.csvwriter.writerow(field)
 
-        def writeDict(self, value):
-            field = []      # column values for output to CVS
-            for name in self.testInfo:
-                if name in value:
-                    field.append(str(value[name]))
+        def writeDict(self, valueDict):
+            field = []      # column values for output to CSV
+            # output values only for the expected fields
+            # every CSV row has the same length and the same fields
+            for name in self.names:
+                if name in valueDict:
+                    # numeric strings will be unquoted in mimimal CSV
+                    field.append(str(valueDict[name]))      # field has data
                 else:
-                    field.append('')
-            for name in self.times:
-                if name in value:
-                    field.append(self.format(value[name]))
-                else:
-                    field.append('')
-            # omit unexpected items to keep all rows same length
+                    field.append('')                # no data for this field
+
             self.csvwriter.writerow(field)
 
     class JsonWriter(object):
         """
-        Write OrderedDicts as Json object literals, with names re-ordered.
+        Write OrderedDicts as JSON object literals, with names in order.
         """
-        def __init__(self, writer, format, testInfo, times):
+        def __init__(self, writer):
             self.writer = writer
-            self.format = format
-            self.testInfo = testInfo
-            self.times = times
 
-        def writeDict(self, value):
-            if len(value) < 1:
-                self.writer.write(json.dumps(value) + '\n')
-                return
-            newdict = collections.OrderedDict()
-            for name in self.testInfo:
-                if name in value:
-                    newdict.setdefault(name, value[name])
-                else:
-                    newdict.setdefault(name, None)
-            for name in self.times:
-                if name in value:
-                    newdict.setdefault(name, self.format(value[name]))
-                else:
-                    newdict.setdefault(name, None)
-            # copy unexpected items as-is
-            for name in value:
-                if not name in newdict:
-                    newdict.setdefault(name, value[name])
-            self.writer.write(json.dumps(newdict) + '\n')
+        def writeDict(self, valueDict):
+            self.writer.write(json.dumps(valueDict) + '\n')
 
 if __name__ == "__main__":
     cmdline = getopt.getopt(sys.argv[1:], 'h',
@@ -201,7 +198,7 @@ if __name__ == "__main__":
 
     # Input text source
     if len(argv) > 0:
-        lineReader = open(argv[0])
+        lineReader = open(argv[0], newline='')
     else:
         lineReader = sys.stdin
 
