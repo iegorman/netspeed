@@ -4,6 +4,7 @@
 import os
 import sys
 import collections
+import gc
 import getopt
 import json
 import math
@@ -129,6 +130,22 @@ class Client(object):
         """Bytes sent per upload."""
 
         return self._uploadLength
+    
+    def bytesource(self, count):
+        """
+        Iterate a sequence of blocks of bytes.
+
+        count is the total number of bytes.
+        Last block may be shorter than the others.
+        """
+        byt = ((b'0123456789' * 7) + b'012345678\n') * 50
+        n = count
+        blen = len(byt)
+        while n > blen:
+            yield byt
+            n -= blen
+        if n > 0:
+            yield byt[0:n]
 
     def begin(self):
         '''
@@ -179,23 +196,23 @@ class Client(object):
                            self.serverURL])) from e
         return
 
-    def downreport(self, params):
+    def reportToServer(self, params, reportPath):
         """
-        Report the result of a download test to the server.
+        Report the result of a download or upload test to the server.
 
-        This is the second stage of a download test and is invoked by
-        download()
+        This is the second stage of a download or upload test and is
+        invoked by downloadTest()
 
-        Takes a dictionary of of informations and returns a similar
+        Takes a dictionary of informations and returns a similar
         dictionary from the server.
         """
         timestamp = self.js_time()
         try:
             params['clientTimestamp'] = timestamp
-            params['pathname'] = self._downreportPath
+            params['pathname'] = reportPath
             # prepare the request
             content = bytes(json.dumps(params), 'utf-8')
-            url = self.serverURL + self._downreportPath
+            url = self.serverURL + reportPath
             request = urllib.request.Request(
                         url,
                         headers = {
@@ -211,8 +228,7 @@ class Client(object):
                                             errors='replace')
         except Exception as e:
             raise RuntimeError('timestamp=' + ': '.join([str(timestamp),
-                           'Failed to report download result to server at',
-                           self.serverURL])) from e
+                                'Failed to report result to', url])) from e
         # data should be JSON text in canonical form
         return json.loads(data)
 
@@ -221,13 +237,12 @@ class Client(object):
         Run a download test with data received from the server.
 
         This is the first stage of a download test and is invoked by
-        download()
+        downloadTest()
 
-        Takes a dictionary of of informations and returns a modified
+        Takes a dictionary of informations and returns a modified
         dictionary.
         """
-        # pre-allocate some integers for later addition to data for the log
-        # this may avoid triggerring a GC cycle via a dictionary update
+        timestamp = self.js_time()
         clientRequestBegin = 0
         clientRequestEnd = 0
         clientResponseBegin = 0
@@ -281,6 +296,8 @@ class Client(object):
         first exchange, and reports full information to the server.
         """
 
+        gc.collect()    # try to avoid garbage collection during test
+
         timestamp = self.js_time()
         # allocation of data to make the request
         params = collections.OrderedDict((
@@ -297,9 +314,9 @@ class Client(object):
         params = self.download(params)
 
         # computer-readable JSON report
-        print(json.dumps(params), file=self._log)
+        print(json.dumps(params) + '\n', file=self._log)
         # human-readable repot
-        megabytes = math.floor(params['downloadLength'] / 1_000_000)
+        megabytes = math.floor(params['downloadLength'] / 1_000) / 1_000
         seconds = (params['clientResponseEnd']
                         - params['clientResponseBegin']) / 1_000
         print( 'Download\n    Time: '
@@ -310,22 +327,121 @@ class Client(object):
                     (self.bitsPerDataByte * megabytes / seconds), 3))
                 + '\n', file=self._report)
 
-        params = self.downreport(params)
+        params = self.reportToServer(params, self._downreportPath)
 
         # computer-readable JSON report
-        print(json.dumps(params), file=self._log)
+        print(json.dumps(params) + '\n', file=self._log)
 
         return
 
+    def upreport(self, params):
+        return params
+
+    def upload(self, params):
+        """
+        Run an upload test with data sent to the server.
+
+        This is the first stage of an upload test and is invoked by
+        uploadTest()
+
+        Takes a dictionary of informations and returns a modified
+        dictionary.
+        """
+        timestamp = self.js_time()
+        clientRequestBegin = 0
+        clientRequestEnd = 0
+        clientResponseBegin = 0
+        clientResponseEnd = 0
+        uploadLength = 0
+        try:
+            # prepare the request
+            url = self.serverURL + self._uploadPath
+            request = urllib.request.Request(
+                        url,
+                        headers = {
+                            'Content-Type': 'application/octet',
+                            'Content-Length': self._uploadLength,
+                            'Accept': 'application/json',
+                        },
+                        data=self.bytesource(self._uploadLength),
+                        method='POST'
+                        )
+            # send the request, mark the times
+            clientRequestBegin = self.js_time()
+            with urllib.request.urlopen(request) as f:
+                clientRequestEnd = self.js_time()
+                # get the response, mark the times
+                # we only need the total length of uploaded data
+                clientResponseBegin = self.js_time()
+                size = len(f.read(1024))
+                while size > 0:
+                    uploadLength += size
+                    size = len(f.read(1024))
+            clientResponseEnd = self.js_time()
+            # update data report and print as JSON to the log
+            params.setdefault('uploadLength', uploadLength)
+            params.setdefault('clientRequestBegin', clientRequestBegin)
+            params.setdefault('clientRequestEnd', clientRequestEnd)
+            params.setdefault('clientResponseBegin', clientResponseBegin)
+            params.setdefault('clientResponseEnd', clientResponseEnd)
+        except Exception as e:
+            raise RuntimeError('timestamp=' + ': '.join([str(timestamp),
+                           'Failed to upload data from server at',
+                           self.serverURL])) from e
+
+        return params
+
     def uploadTest(self):
         """
-        Runs upload test and report result to server.
+        Run upload test and report result to server.
+
+        There are two exchanges.  The first exchange does the upload and
+        reports partial information to the server.  The second exchange
+        includes information that becomes available after completion of the
+        first exchange, and reports full information to the server.
         """
-        pass
+
+        gc.collect()    # try to avoid garbage collection during test
+
+        timestamp = self.js_time()
+        # allocation of data to make the request
+        params = collections.OrderedDict((
+                ('externalIP', self._externalIP),
+                ('testID', self._testID),
+                ('testBegin', self._testBegin),
+                ('testNumber', self._testNumber),
+                ('pathname', self._uploadPath),
+                ('clientTimestamp', timestamp),
+                ('interval', self._interval),
+                ('uploadLength', self._uploadLength),
+        ))
+
+        params = self.upload(params)
+
+        # computer-readable JSON report
+        print(json.dumps(params) + '\n', file=sys.stderr)
+        # human-readable repot
+        megabytes = math.floor(params['uploadLength'] / 1_000) / 1_000
+        seconds = (params['clientResponseEnd']
+                        - params['clientRequestBegin']) / 1_000
+        print( 'Upload\n    Time: '
+                + self.js_clock(params['clientTimestamp'])
+                + '\n    Megabytes: ' + str(megabytes)
+                + '\n    Seconds: ' + str(seconds)
+                + '\n    Megabits / Second: ' + str(round(
+                    (self.bitsPerDataByte * megabytes / seconds), 3))
+                + '\n', file=self._report)
+
+        params = self.reportToServer(params, self._upreportPath)
+
+        # computer-readable JSON report
+        print(json.dumps(params) + '\n', file=self._log)
+
+        return
 
     def run_test_cycle(self):
         """
-        Run a single set of download and upload tests.
+        Run a single set of upload and upload tests.
         """
         self.downloadTest()
         self.uploadTest()
@@ -344,35 +460,37 @@ class Client(object):
         self.repeat_test_cycle()
 
 if __name__ == "__main__":
-    cmdline = getopt.getopt(sys.argv[1:], "",
-                            longopts=["testid=", "interval=", "download=",
-                                    "upload="])
+    shortopts = "h"
+    longopts = ["help", "testid=", "interval=", "download=", "upload="]
+    cmdline = getopt.getopt(sys.argv[1:], shortopts, longopts=longopts)
     argv = cmdline[1]
     opt = dict(cmdline[0])
 
     #Client("http://localhost:8080/").run()
     #exit(0)
 
-    if len(argv) < 1:
-        print("Usage: " + sys.argv[0] + " host[:port] [options]")
-        print("       Client to estimate download and upload times")
-        print("     host (required): domain name or IP address of server")
-        print("     port (optional, default = 80): destination port on server")
-        print("   Options:")
-#        print("     --testid=ID    test ID"
-#              + " (default = test ID set by server)")
-        print("     --interval=n   time (seconds) between runs"
-              + " (default = time set by server)")
-        print("     --download=n   number of bytes to downSload"
-              + " (default = size set by server)")
-        print("     --upload=n     number of bytes to upload"
-              + " (default = size set by server)")
-        print("   See script for details")
-        exit(1)
+    def printerr(s):
+        print(s, file=sys.stderr)
 
+    if len(argv) < 1 or '-h' in opt or '--help' in opt:
+        printerr("Usage: " + sys.argv[0] + " host[:port] [options]")
+        printerr("       Client to estimate download and upload times")
+        printerr("     host (required): domain name or IP address of server")
+        printerr("     port (optional, default = 80): destination port on server")
+        printerr("   Options:")
+        printerr("       -h|--help     printerr this message")
+#        printerr("     --testid=ID    test ID"
+#              + " (default = test ID set by server)")
+        printerr("     --interval=n   time (seconds) between runs"
+              + " (default = time set by server)")
+        printerr("     --download=n   number of bytes to download"
+              + " (default = size set by server)")
+        printerr("     --upload=n     number of bytes to upload"
+              + " (default = size set by server)")
+        printerr("   See script for details")
+        exit(1)
 #    testid = (int(opt["--testid"]) if "--testid" in opt
 #                                    else Client.defaultTestID)
-
     interval = (int(opt["--interval"]) if "--interval" in opt
                                         else Client.defaultInterval)
 
