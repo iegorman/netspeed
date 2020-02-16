@@ -69,6 +69,12 @@ const echoPage = new URL('file://' + path.resolve(scriptdir, 'echo.html'));;
 const e404Page = new URL('file://' + path.resolve(scriptdir, 'e404.html'))
 const e418PostPage = new URL('file://' + path.resolve(scriptdir, 'e418.html'))
 
+const data6meg = new URL('file://' + path.resolve(scriptdir, 'text6meg.dat'))
+const data10meg = new URL('file://' + path.resolve(scriptdir, 'text10meg.dat'))
+const data15meg = new URL('file://' + path.resolve(scriptdir, 'text15meg.dat'))
+const data25meg = new URL('file://' + path.resolve(scriptdir, 'text25meg.dat'))
+const data50meg = new URL('file://' + path.resolve(scriptdir, 'text50meg.dat'))
+
 const maxLine = 80;   // max length of line to output, does not apply to JSON data
 
 // defaults and range limits for numeric values
@@ -89,7 +95,7 @@ const range_max = {
 };
 
 // asynchronous output streams.
-// same destinations as console.out and console.errorr, which are synchronous
+// same destinations as console.out and console.error, which are synchronous
 // timestamp any failures to aid in troubleshooting
 const logStream = fs.createWriteStream('/dev/stdout', { autoClose : false });
 logStream.on('error', (err) => {
@@ -115,33 +121,6 @@ function getURL(req)  {
   return new URL('http://' + hostname + req.url);
 }
 
-// return a line of printable 7-bit characters, ending with '\n'
-// size includes '\n', returns '' for size <= 0
-function textLine(size)  {
-  const chunk = '0123456789';
-  const chunkLength = chunk.length;
-  const textLength = size - 1;            // leave room for '\n';
-  var n = textLength;
-  var line = '';
-  while (n > 0) {
-    line += chunk;
-    n -= chunkLength;
-  }
-  return line.slice(0, textLength) + '\n';  // make room for '\n'
-}
-
-// return a block of printable 7-bit characters, in fixed-length lines
-// last line may be short
-function textBlock(blockLength, lineLength)   {
-  var block = '';
-  var n = blockLength;
-  while (n-- > lineLength) {
-      block +- textLine(lineLength);
-  }
-  block += textLine(n);
-  return block;
-}
-
 function checkInfoRange(info) {
   // default test parameters if not set by client, or if out-of-range
   for (let name in default_config)  {  // fix missing or out-of-range items
@@ -162,13 +141,13 @@ function checkInfoRange(info) {
   return info;    // is original reference, to modified object
 }
 
-// send a web page as a complete reply
-function sendPage(req, res, info, pageURL)  {
-  const pageStream = fs.createReadStream(pageURL)
+// send a file as a complete reply
+function sendFile(req, res, info, filePath, contentType)  {
+  const fileStream = fs.createReadStream(filePath)
 
-  res.setHeader('Content-Type', 'text/html');
+  res.setHeader('Content-Type', contentType);
 
-  pageStream.on('error', (err) => {
+  fileStream.on('error', (err) => {
     // onstall error handler before any other handler
     errorStream.write(JSON.stringify(err));
 
@@ -180,6 +159,11 @@ function sendPage(req, res, info, pageURL)  {
     // "flow mode" until all the other handlers have been installed.
     res.write(chunk);
   });
+}
+
+// send a web page as a complete reply
+function sendPage(req, res, info, pagePath) {
+  sendFile(req, res, info, pagePath, 'text/html');
 }
 
 // reply to a request for page that does not exist
@@ -223,25 +207,29 @@ function reply_begin(req, res, info)  {
 
 // reply to a data download request, download requested length of data
 function reply_download(req, res, info)  {
-  const clientIP = req.socket.remoteAddress;
   var downloadLength = parseInt(info.downloadLength);
-  if (downloadLength == null
-      || isNaN(downloadLength)
-      || downloadLength < range_min.downloadLength
-      || downloadLength > range_max.downloadLength) {
-    downloadLength = default_config.downloadLength; // default if size invalid
-    info.error = { errorTime : Date.now(), err : 'Invalid download size' };
+  var filePath = null;
+  if (downloadLength <= 6000000)  {
+    filePath = data6meg;
+    downloadLength = 6000000;
   }
-  res.setHeader('Content-Type', 'text/plain');
-  const data = textBlock(maxLine, maxLine);
-  const blockLength = data.length;
-  var n = downloadLength
-  while (n > blockLength) {
-    res.write(data);
-    n -= blockLength;
+  else if (downloadLength <= 10000000)  {
+    filePath = data10meg;
+    downloadLength = 10000000;
   }
-  res.write(data.slice(0, n));
-  res.end();
+  else if (downloadLength <= 15000000)  {
+    filePath = data15meg;
+    downloadLength = 15000000;
+  }
+  else if (downloadLength <= 25000000)  {
+    filePath = data25meg;
+    downloadLength = 25000000;
+  }
+  else {
+    filePath = data50meg;
+    downloadLength = 50000000;
+  }
+  sendFile(req, res, info, filePath, 'application/octet');
   info.downloadLength = downloadLength;
 };
 
@@ -392,12 +380,12 @@ const server = http.createServer((req, res) => {
     // other handlers should be in place before input (flow mode) begins
 
     // count incoming POST bytes, discard if large upload
-    // Note that upload contrnt should not be JSON.
+    // Note that upload content should not be JSON.
     //See the request 'end' event for details.
     if (pathname != uploadPath) { // keep POST (or PUT) data except for upload
       bodychunks.push(chunk)
     }
-    bodyLength += chunk.length;        // count all data
+    bodyLength += chunk.length;        // count bytes for all data
   });       // last request event handler
 });       //  end of function http.createServer((req, res)
 
