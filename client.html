@@ -63,7 +63,7 @@ var firstRunTime = 0;
 var lastRunTime = 0;
 var nextRunTime = 0;
 var timeoutNextRunTime = null;
-var testBeginTime = undefined;
+var testBeginTime = null;
 
 // return a line of printable 7-bit characters, ending with '\n'
 // size includes '\n', returns '' for size <= 0
@@ -174,7 +174,7 @@ async function beginTest()    {
     var testInfo = {     // send configuration to server, reply will update
         externalIP:         null,           // get vzlue from server
         testID:             null,           // get value from server
-        testBegin:          null,           // get value from server
+        testBegin:          Date.now(),     // may get new value from server
         pathname:           urlSetup.slice(1),
         clientTimestamp:    timestamp,
     }

@@ -158,7 +158,7 @@ class Client(object):
         params = collections.OrderedDict((
                 ('externalIP', self._externalIP),
                 ('testID', self._testID),
-                ('testBegin', self._testBegin),
+                ('testBegin', self.js_time()),  # server may revise this time
                 ('pathname', self._setupPath),
                 ('clientTimeStamp', timestamp),
                 ('interval', self._interval),
@@ -184,6 +184,7 @@ class Client(object):
                 self._interval = info["interval"]
                 self._downloadLength = info["downloadLength"]
                 self._uploadLength = info["uploadLength"]
+                self._testBegin = info['testBegin']
                 print(info, file=self._log)
                 print( 'Begin:\n    Test ID = ' + info['testID']
                         + '\n    External IP = ' + info['externalIP']
@@ -274,7 +275,7 @@ class Client(object):
                     downloadLength += size
                     size = len(f.read(1024))
             clientResponseEnd = self.js_time()
-            # update data report and print as JSON to the log
+            # update the information and return it
             params.setdefault('downloadLength', downloadLength)
             params.setdefault('clientRequestBegin', clientRequestBegin)
             params.setdefault('clientRequestEnd', clientRequestEnd)
@@ -447,8 +448,8 @@ class Client(object):
         self.uploadTest()
 
     def repeat_test_cycle(self):
-        """Repeat a cycle of tests at intervals.
-
+        """
+        Repeat a cycle of tests at intervals.
         """
         self.run_test_cycle()
 
@@ -456,8 +457,10 @@ class Client(object):
         """
         Invoke startup and ongoing test runs.
         """
-        self.begin()
-        self.repeat_test_cycle()
+        while True:
+            self.begin()
+            self.repeat_test_cycle()
+            time.sleep(self._interval)
 
 if __name__ == "__main__":
     shortopts = "h"
@@ -465,9 +468,6 @@ if __name__ == "__main__":
     cmdline = getopt.getopt(sys.argv[1:], shortopts, longopts=longopts)
     argv = cmdline[1]
     opt = dict(cmdline[0])
-
-    #Client("http://localhost:8080/").run()
-    #exit(0)
 
     def printerr(s):
         print(s, file=sys.stderr)

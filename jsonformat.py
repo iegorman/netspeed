@@ -87,39 +87,46 @@ class JsonFormat(object):
         else:               # CSV
             writeDict = cls.CsvWriter(writer, cls.testInfo, cls.times
                                         ).writeDict
-
-        # create and output a dictionary from eadh input line (JSON literal)
-        line = lineReader.readline(MaxJsonLength)
-        while len(line) > 0:
-            strippedLine = line.strip()
-            if strippedLine == '':
-                value = collections.OrderedDict()   # allow blank lines
-            else:
-                value = json.loads(line.strip())    # JSON to ordered dictionary
-
-            newdict = collections.OrderedDict()
-            for name in cls.testInfo:
-                if name in value:
-                    newdict.setdefault(name, value[name])
-            for name in cls.times:
-                if name in value:
-                    if isRaw:
-                        # milliseconds from Unix epoch
-                        newdict.setdefault(name, value[name])
-                    else:
-                        # human-readable local date and time
-                        newdict.setdefault(name, cls.formatTime(value[name]))
-            if isJsonFormat:
-                # names not listed in CSV headings
-                # Copy as-is to JSON, but not to CSV
-                # Each CSV row has same number of columns, no extra columns
-                for name in value:
-                    if not name in newdict:
-                        newdict.setdefault(name, value[name])
-
-            writeDict(newdict)
-
+        try:
+            # create and output dictionary from eadh input line (JSON literal)
             line = lineReader.readline(MaxJsonLength)
+            line_num = 0
+            while len(line) > 0:
+                line_num += 1
+                strippedLine = line.strip()
+                if strippedLine == '':
+                    value = collections.OrderedDict()   # allow blank lines
+                else:
+                    value = json.loads(line.strip())    # ordered dictionary
+
+                newdict = collections.OrderedDict()
+                for name in cls.testInfo:
+                    if name in value:
+                        newdict.setdefault(name, value[name])
+                for name in cls.times:
+                    if name in value:
+                        if isRaw:
+                            # milliseconds from Unix epoch
+                            newdict.setdefault(name, value[name])
+                        else:
+                            # human-readable local date and time
+                            newdict.setdefault(name,
+                                                cls.formatTime(value[name]))
+                if isJsonFormat:
+                    # names not listed in CSV headings
+                    # Copy as-is to JSON, but not to CSV
+                    # Each CSV row has same number of columns, no extra columns
+                    for name in value:
+                        if not name in newdict:
+                            newdict.setdefault(name, value[name])
+
+                writeDict(newdict)
+
+                line = lineReader.readline(MaxJsonLength)
+        except Exception as e:
+            # Error is most likely due to error in creating the inpuy
+            raise RuntimeError('Error at line ' + str(line_num)
+                                + ' of input.') from e
 
     class CsvWriter(object):
         """
