@@ -38,6 +38,7 @@
       serverResponseEnd:    null,
       downloadLength:       null,
       uploadLength:         null,
+      serverBodyLength:     null,
     }
  */
 
@@ -69,14 +70,6 @@ const echoPage = new URL('file://' + path.resolve(scriptdir, 'echo.html'));;
 const e404Page = new URL('file://' + path.resolve(scriptdir, 'e404.html'))
 const e418PostPage = new URL('file://' + path.resolve(scriptdir, 'e418.html'))
 
-const data6meg = new URL('file://' + path.resolve(scriptdir, 'text6meg.dat'))
-const data10meg = new URL('file://' + path.resolve(scriptdir, 'text10meg.dat'))
-const data15meg = new URL('file://' + path.resolve(scriptdir, 'text15meg.dat'))
-const data25meg = new URL('file://' + path.resolve(scriptdir, 'text25meg.dat'))
-const data50meg = new URL('file://' + path.resolve(scriptdir, 'text50meg.dat'))
-
-const maxLine = 80;   // max length of line to output, does not apply to JSON data
-
 // defaults and range limits for numeric values
 const default_config = {
   downloadLength  : 1000,       // 0000,
@@ -94,6 +87,7 @@ const range_max = {
   interval        : 14400
 };
 
+
 // asynchronous output streams.
 // same destinations as console.out and console.error, which are synchronous
 // timestamp any failures to aid in troubleshooting
@@ -108,17 +102,48 @@ errorStream.on('error', (err) => {
   console.error(err);
 });
 
+// data block for large downloads of meaningless data
+const tx = '012345678901234567890123456789012345678901234567890123456789012\n';
+function makeDatablock()  {
+  var block = [];
+  var n = 256;
+  while (n > 0) {
+    n -= 1;
+    block.push(tx);
+  }
+  return block.join('');
+}
+const datablock = makeDatablock();  // 16,384 bytes
+
+// a Readable to generate meaningles data for large downloads
+//    https://nodejs.org/api/stream.html#stream_implementing_a_readable_stream
+// In node.js 12.3.0 or later, this could be replaced by stream/Readable.from()
+class DataStream extends stream.Readable  {
+  constructor(size) {   // size of download to send
+    super();
+    this.n = size;
+    this.b = datablock.length;
+  }
+  // function used to request that more data be placed in buffer
+  // data is "pushed" into a buffer to make it available from the reader
+  _read(size) {   // recommended size (ignored) for next block of data
+    while (this.n > this.b)  {
+      this.n -= this.b;
+      if (!this.push(datablock))  {   // if (expandable) buffer "full"
+        return;                       //    wait for more data to be read
+      }
+    }
+    this.push(datablock.slice(0, this.n));  // last block, may be zero length
+    this.push(null);  // end of data
+  }
+};
+
 // I'm alive!
 function showRequest(req, res, info)  {
   res.write('method=' + req.method + '\n');
   res.write('url=' +  req.url +'\n');
   res.write(JSON.stringify(info) + '\n')
   res.write(JSON.stringify(req.socket.remoteAddress) + '\n');
-}
-
-// Get URL object from url string in request
-function getURL(req)  {
-  return new URL('http://' + hostname + req.url);
 }
 
 function checkInfoRange(info) {
@@ -205,32 +230,18 @@ function reply_begin(req, res, info)  {
   // info will be written to logStream when the response is finished.
 };
 
-// reply to a data download request, download requested length of data
+// reply to a data download request, send requested length of meaningless data
 function reply_download(req, res, info)  {
   var downloadLength = parseInt(info.downloadLength);
-  var filePath = null;
-  if (downloadLength <= 6000000)  {
-    filePath = data6meg;
-    downloadLength = 6000000;
-  }
-  else if (downloadLength <= 10000000)  {
-    filePath = data10meg;
-    downloadLength = 10000000;
-  }
-  else if (downloadLength <= 15000000)  {
-    filePath = data15meg;
-    downloadLength = 15000000;
-  }
-  else if (downloadLength <= 25000000)  {
-    filePath = data25meg;
-    downloadLength = 25000000;
-  }
-  else {
-    filePath = data50meg;
-    downloadLength = 50000000;
-  }
-  sendFile(req, res, info, filePath, 'application/octet');
-  info.downloadLength = downloadLength;
+  var datastream = new DataStream(downloadLength);
+  res.setHeader('Content-Type', 'application/octet');
+  datastream.on('error', (err) => {
+    // onstall error handler before any other handler
+    errorStream.write(JSON.stringify(err));
+  }).on('end', () => {
+    res.end();
+  });
+  datastream.pipe(res);
 };
 
 // reply to a download report from a client
@@ -304,6 +315,7 @@ const server = http.createServer((req, res) => {
 
     var requestEnd = Date.now();
     body = bodychunks.join('');
+    // body = Buffer.concat(body).toString(); // https://nodejs.org/es/docs/guides/anatomy-of-an-http-transaction/
     var headers = req.headers;    // req.getHeader "not a function".
     var contentType = headers['content-type'];  // may be undefined or null
     // console.log(headers);
@@ -328,6 +340,7 @@ const server = http.createServer((req, res) => {
     info.serverRequestBegin = timestamp;
     info.serverRequestEnd = requestEnd;
     info.serverResponseBegin = Date.now();
+    info.serverBodyLength = bodyLength;
 
     if (pathname == rootPath)  {   // no content expected: GET, PUT, or POST
       reply_slash(req, res, info);
@@ -358,7 +371,6 @@ const server = http.createServer((req, res) => {
     }
     else if (pathname == uploadPath)  {
       if (req.method == 'POST')  {   // content is in body
-        info.uploadLength = bodyLength;
         reply_upload(req, res, info, body);
       } else {
         reply_418Post(req, res, info);
