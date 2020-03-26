@@ -5,6 +5,7 @@
 <!-- Requires HTML5 and Javascript ES6 with support for "strict mode".
     For infomation about "strict mode" and "strict mode" support, see
     https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Strict_mode
+    This web page will fail in Internet Explorer and may fail in Safari.
   -->
 <html>
     <head>
@@ -50,6 +51,13 @@
   object shown in comments at the top of file './server.js'.
  */
 
+// URLs relative to server
+const setupPath = '/begin';
+const downloadPath = '/download';
+const downreportPath = '/downreport';
+const uploadPath = '/upload';
+const upreportPath = '/upreport';
+
 // count only the bits in actual data, ignore protocal bits
 // protocol bit are a small proportion of the message exceopt in smalll packets
 const bitsPerDataByte = 8;
@@ -64,21 +72,6 @@ var lastRunTime = 0;
 var nextRunTime = 0;
 var timeoutNextRunTime = null;
 var testBeginTime = null;
-
-// return a line of printable 7-bit characters, ending with '\n'
-// size includes '\n', returns '' for size <= 0
-function textLine(size)  {
-  const chunk = '0123456789';
-  const chunkLength = chunk.length;
-  const textLength = size - 1;            // leave room for '\n';
-  var n = textLength;
-  var line = '';
-  while (n > 0) {
-    line += chunk;
-    n -= chunkLength;
-  }
-  return line.slice(0, textLength) + '\n';  // make room for '\n'
-}
 
 var testReport = {     /* text output to text box (<PRE></PRE>)*/
     clear : function() {
@@ -169,13 +162,12 @@ function scheduleNextTestCycle()   {
 
 /* get info from server, allow other activity while waiting */
 async function beginTest()    {
-    const urlSetup = './begin';
     var timestamp = Date.now();
     var testInfo = {     // send configuration to server, reply will update
         externalIP:         null,           // get vzlue from server
         testID:             null,           // get value from server
         testBegin:          Date.now(),     // may get new value from server
-        pathname:           urlSetup.slice(1),
+        pathname:           setupPath,
         clientTimestamp:    timestamp,
     }
     testReport.write('Begin:\n');
@@ -183,7 +175,7 @@ async function beginTest()    {
     // send testInfo, pause until response
     try {
         var content = JSON.stringify(testInfo);
-        var response = await fetch(urlSetup, {
+        var response = await fetch(setupPath, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -200,7 +192,7 @@ async function beginTest()    {
     if (response.status != 200) {   // no valid reply
         var e = {'error': response.statusText,
                 'status': response.status,
-                'path': urlSetup,
+                'path': setupPath,
                 'timestamp': timestamp};
         testLog.write(JSON.stringify(e) + '\n');
         testReport.write('error:\n    Test startup info not received from server.\n');
@@ -221,7 +213,7 @@ async function beginTest()    {
     } catch(e) {
         testLog.write(JSON.stringify(
                 {'error': 'Test startup info not in JSON format',
-                'path': urlSetup,
+                'path': setupPath,
                 'timestamp': timestamp}) + '\n');
         testReport.write('error:\n    Test startup info from server not in JSON format\n');
         testReport.write('    ' + e.toString() + '\n');
@@ -230,10 +222,16 @@ async function beginTest()    {
     return Promise.resolve();
 }
 
-// run a download test and report the result back to serverr
-async function downloadTest()   {
-    const urlDownload = './download';
-    const urlDownreport = './downreport';
+// run a download test
+// The accuracy of estimate for download speed depends entirely on the
+// efficiency and minimization of delays in this function.
+// This function uses the Stream API to download large amounts of data without
+// storing the data.
+//  https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Using_readable_streams
+//  https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream/ReadableStream
+//  https://developer.mozilla.org/en-US/docs/Web/API/Streams_API/Concepts
+//  https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream
+async function download()   {
     var timestamp = Date.now();
     var localConfig = getLocalConfig();
     var testInfo = {     // send configuration to server, reply will update
@@ -241,7 +239,7 @@ async function downloadTest()   {
         testID:             localConfig.testID,
         testBegin:          localConfig.testBegin,
         testNumber:         testRuns,
-        pathname:           urlDownload.slice(1),
+        pathname:           downloadPath,
         clientTimestamp:    timestamp,
         interval:           localConfig.interval,
         downloadLength:     localConfig.downloadSize,
@@ -252,7 +250,7 @@ async function downloadTest()   {
     try {
         testInfo.clientRequestBegin = Date.now();
         let content = JSON.stringify(testInfo);
-        var response = await fetch(urlDownload, {
+        var response = await fetch(downloadPath, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -263,7 +261,7 @@ async function downloadTest()   {
     } catch(e) {
         // request failed, but not from HTML errors
         console.log(e);
-        testReport.write('error:\n    Download failed.');
+        testReport.write('error:\n    Download failed: network error.');
         testReport.write('    ' + e + '\n');
         return Promise.reject(e);
     }
@@ -272,47 +270,55 @@ async function downloadTest()   {
     if (response.status != 200) {   // no valid reply, download failed
         var e = {'error': response.statusText,
                 'status': response.status,
-                'path': urlSetup,
+                'path': downloadPath,
                 'timestamp': timestamp};
         testLog.write(JSON.stringify(e) + '\n');
-        testReport.write('error:\n    Download from server not completed.\n');
+        testReport.write('error:\n    Download failed: invalid response.\n');
         return Promise.reject(e);
     }
     try {
         // rquest succeeded, read the download from the response
         testInfo.clientResponseBegin = Date.now();
-        var reply = await response.blob();
+        var bodyreader = response.body.getReader();     // synchronous
+        var bodylength = 0;
+        var done = false;
+        try {
+            // measure the incoming length and discard the data
+            while (!done)   {
+                var chunk = await bodyreader.read();    // asynchronous
+                if (chunk.done){
+                    done = true;
+                } else {
+                    bodylength += chunk.value.length;
+                }
+            }
+        }
+        catch(e)    {
+            testReport.write('error:\n    Download failed while reading chunks.');
+            testReport.write('    ' + e + '\n');
+            return Promise.reject(e);
+        }
+        testInfo.clientReceiveLength = bodylength
         // Download completed.
         testInfo.clientResponseEnd = Date.now();
-        testInfo.downloadLength = reply.size;   // record the size
-        reply = '';     // not JSON, discard, and hint for garbage collection
-        // Record the download in the test log.
-        testLog.write(JSON.stringify(testInfo) + '\n');
-        // return value (for a resolved Promise) is now known and
-        // can be returned even if this function must bail out early
-        var downloadSummary = { // value to be returned in a resolved Promise
-            time:   testInfo.clientTimestamp,
-            size:   testInfo.downloadLength,
-            begin:  testInfo.clientRequestBegin,
-            end:    testInfo.clientResponseEnd,
-        }
         // defer the return until the report to server succeeds or fails
     } catch(e)  {
         // Download failed.
         console.log(e);
-        testReport.write('error:\n    Download failed.');
+        testReport.write('error:\n    Download failed: not completed.');
         testReport.write('    ' + e + '\n');
         return Promise.reject(e);
     }
+    return testInfo;
+}
 
+async function reportDownloadToServer(testInfo){
     // report the download result to server
-    // function value will be returned in a resolved promaise whether the
-    // report to server succeeds or fails
     testInfo.clientTimestamp = Date.now();          // other items unchanged
-    testInfo.pathname = urlDownreport.slice(1);     //
+    testInfo.pathname = downreportPath;     //
     try {   // report download test to local log and to remote server
         let content = JSON.stringify(testInfo);
-        var response = await fetch(urlDownreport, {
+        var response = await fetch(downreportPath, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -325,16 +331,16 @@ async function downloadTest()   {
         console.log(e);
         testReport.write('error:\n    Failed to send download report to server.');
         testReport.write('    ' + e + '\n');
-        return downloadSummary;
+        return Promise.reject(e);
     }
     if (response.status != 200) {   // no valid reply
         var e = {'error': response.statusText,
                 'status': response.status,
-                'path': urlSetup,
+                'path': downreportPath,
                 'timestamp': timestamp};
         testLog.write(JSON.stringify(e) + '\n');
         testReport.write('error:\n    Server did not acknowledge download report.\n');
-        return downloadSummary;
+        return Promise.reject(e);
     }
     try {
         var reply = await response.json();  // valid reply will be JSON text
@@ -342,13 +348,12 @@ async function downloadTest()   {
     } catch(e)  {
         testLog.write(JSON.stringify(
                 {'error': 'Test startup info not in JSON format',
-                'path': urlDownreport,
+                'path': downreportPath,
                 'timestamp': timestamp}) + '\n');
         testReport.write('error:\n    Response from server not in JSON format\n');
         testReport.write('    ' + e.toString() + '\n');
-        return downloadSummary;
     }
-    return downloadSummary;
+    return;
 }
 
 // variables used only by next function, but retain values between invocations
@@ -357,11 +362,11 @@ let downloadTotalMegabits = 0;
 let downloadMin = Number.MAX_SAFE_INTEGER;
 let downloadMax = 0;
 
-function reportDownload(data){
+function reportDownloadToBrowser(data){
     // console.log(JSON.stringify(data));
     // data is bytes per millisecond (kilobytes per second)
-    // Transmitted bit count will be more than eight times the byte count
-    var megabits = (bitsPerDataByte * data.size/1000000);
+    var megabytes = data.size/1000000;
+    var megabits = bitsPerDataByte * megabytes;
     var seconds = (data.end - data.begin)/1000;  // millisec
     var megabitsPerSecond = megabits/seconds;
     downloadTotalSeconds += seconds;
@@ -375,17 +380,58 @@ function reportDownload(data){
                 max3Decimal.format(downloadTotalMegabits / downloadTotalSeconds));
     document.getElementById('downMax').innerHTML = max3Decimal.format(downloadMax);
     testReport.write('    Time: ' + formatTimestamp(data.time)
-                + '\n    Megabytes: ' + max3Decimal.format(data.size/1000000)
+                + '\n    Megabytes: ' + max3Decimal.format(megabytes)
                 + '\n    Seconds: ' + max3Decimal.format(seconds)
                 + '\n    Megabits/Second: '
                     + max3Decimal.format(megabitsPerSecond)
                 + '\n');
 }
 
-// run an upload test and report the result back to serverr
-async function uploadTest()   {
-    const urlUpload = './upload';
-    const urlUpreport = './upreport';
+async function downloadTest()   {
+    var testInfo = null;
+    try {
+        testInfo = await download();
+    } catch(e) {
+        return Promise.reject(e);
+    }
+    try {
+        await reportDownloadToServer(testInfo);
+    } catch(e) {
+        console.error(e)    // get an error report if debugging
+        // still want to continue and report to browser
+    }
+    try {
+            var downloadSummary = {
+            time:   testInfo.clientTimestamp,
+            size:   testInfo.clientReceiveLength,
+            begin:  testInfo.clientRequestBegin,
+            end:    testInfo.clientResponseEnd,
+        }
+        reportDownloadToBrowser(downloadSummary);
+    } catch(e) {
+        testReport.write('error:\n    Fziled to report download to browser.\n');
+        return Promise.reject(e);
+    return;
+    }
+}
+
+// data block for large uploads of meaningless data
+// create a block of printable 7-bit characters, broken into lines by '\n'
+const tx = '012345678901234567890123456789012345678901234567890123456789012\n';
+function makeDatablock()  {
+  var block = [];
+  var n = 256;
+  while (n > 0) {
+    n -= 1;
+    block.push(tx);
+  }
+  return block.join('');
+}
+const datablock = makeDatablock();  // 16,384 bytes
+
+// run an upload test
+// test information is not sent because a blob of known size is being send instead
+async function upload()   {
     var timestamp = Date.now();
     var localConfig = getLocalConfig();
     var testInfo = {     // will be sent to server, reply will update
@@ -393,39 +439,47 @@ async function uploadTest()   {
         testID:             localConfig.testID,
         testBegin:          localConfig.testBegin,
         testNumber:         testRuns,
-        pathname:           urlUpload.slice(1),
+        pathname:           uploadPath,
         clientTimestamp:    timestamp,
         interval:           localConfig.interval,
         uploadLength:       localConfig.uploadSize,
     };
-    testReport.write('\nupload:\n');
 
     // send a block of data, pause until response
     try {
-        // create a block of data to upload
-        let maxLine = 80;
+        // create a blob of data to upload
+        // Using a ReadableStream in a Request body is not yet implemented
+        //    https://developer.mozilla.org/en-US/docs/Web/API/Request/Request
+        // When implemented, blob could be replaced by a ReadableStream that
+        //  generates data without requiring allocation of a large blob in memory
         let n = testInfo.uploadLength;
+        let dblock = datablock;
+        let dblength = dblock.length;
         let upData = [];
-        while (n > 0) {
-            let size = Math.min(n, maxLine);
-            upData.push(textLine(size));
+        let size = Math.min(n, dblength);
+        while (n > size) {
+            upData.push(dblock);
             n -= size;
         }
+        upData.push(dblock.slice(n));
         let content = upData.join('');
-        upData = [];    // release original array for garbage collection
+        upData = [];    // free the original array for garbage collection
+        // enclose the blob in a request
+        var request = new Request(uploadPath,
+                                {   method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'text/plain',
+                                        'Accept': 'application/json'
+                                    },
+                                    body: content
+                                });
+        // upload the blob
         testInfo.clientRequestBegin = Date.now();
-        var response = await fetch(urlUpload, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'text/plain',
-                'Accept': 'application/json'
-            },
-            body: content
-        });
+        var response = await fetch(request);
     } catch(e) {
         // request failed, but not from HTML errors
         console.log(e);
-        testReport.write('error:\n    Upload failed.');
+        testReport.write('error:\n    Upload failed: metwork error.');
         testReport.write('    ' + e + '\n');
         return Promise.reject(e);
     }
@@ -434,10 +488,10 @@ async function uploadTest()   {
     if (response.status != 200) {   // no valid reply, upload failed
         var e = {'error': response.statusText,
                 'status': response.status,
-                'path': urlSetup,
+                'path': uploadPath,
                 'timestamp': timestamp};
         testLog.write(JSON.stringify(e) + '\n');
-        testReport.write('error:\n    Upload to server not completed.\n');
+        testReport.write('error:\n    Upload failed:  invalid response.\n');
         return Promise.reject(e);
     }
     testInfo.clientResponseBegin = Date.now();
@@ -451,33 +505,25 @@ async function uploadTest()   {
         testInfo.serverRequestEnd = reply.serverRequestEnd;
         testInfo.serverResponseBegin = reply.serverResponseBegin;
         testInfo.serverResponseEnd = reply.serverResponseEnd;
+        testInfo.serverReceiveLength = reply.serverReceiveLength;
         // Record the upload in the test log.
         testLog.write(JSON.stringify(testInfo) + '\n');
-        // return value (for a resolved Promise) is now known and
-        // can be returned even if this function must bail out early
-        var uploadSummary = { // value to be returned in a resolved Promise
-            time:   testInfo.clientTimestamp,
-            size:   testInfo.uploadLength,
-            begin:  testInfo.clientRequestBegin,
-            end:    testInfo.clientResponseEnd,
-        }
-        // defer the return until the report to server succeeds or fails
     } catch(e)  {
         // Upload failed.
         console.log(e);
-        testReport.write('error:\n    Upload failed.');
+        testReport.write('error:\n    Upload failed: invalid reply data');
         testReport.write('    ' + e + '\n');
         return Promise.reject(e);
     }
+    return testInfo;
+}
 
-    // report the upload result to server
-    // function value will be returned in a resolved promaise whether the
-    // report to server succeeds or fails
+async function reportUploadToServer(testInfo)   {
     testInfo.clientTimestamp = Date.now();          // other items unchanged
-    testInfo.pathname = urlUpreport.slice(1);     //
+    testInfo.pathname = upreportPath;     //
     try {   // report upload test to local log and to remote server
         let content = JSON.stringify(testInfo);
-        var response = await fetch(urlUpreport, {
+        var response = await fetch(upreportPath, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -490,29 +536,29 @@ async function uploadTest()   {
         console.log(e);
         testReport.write('error:\n    Failed to send upload report to server.');
         testReport.write('    ' + e + '\n');
-        return uploadSummary;
+        return Promise.reject(e);
     }
     if (response.status != 200) {   // no valid reply
         var e = {'error': response.statusText,
                 'status': response.status,
-                'path': urlSetup,
+                'path': upreportPath,
                 'timestamp': timestamp};
         testLog.write(JSON.stringify(e) + '\n');
         testReport.write('error:\n    Server did not acknowledge upload report.\n');
     }
     try {
-        var reply = await response.json();  // octets or ASCII text
+        var reply = await response.json();  // should be JSON text
         testLog.write(JSON.stringify(reply) + '\n');
     } catch(e)  {
         testLog.write(JSON.stringify(
                 {'error': 'Test startup info not in JSON format',
-                'path': urlUpreport,
+                'path': upreportPath,
                 'timestamp': timestamp}) + '\n');
         testReport.write('error:\n    Response from server not in JSON format\n');
         testReport.write('    ' + e.toString() + '\n');
-        return uploadSummary;
+        return Promise.reject(e);
     }
-    return uploadSummary;
+    return;
 }
 
 // variables used only by next function, but retain values between invocations
@@ -521,12 +567,13 @@ let uploadTotalMegabits = 0;
 let uploadMin = Number.MAX_SAFE_INTEGER;
 let uploadMax = 0;
 
-function reportUpload(data){
+function reportUploadToBrowser(data){
     // console.log(data);
     // console.log(JSON.stringify(data));
     // data is bytes per millisecond (kilobytes per second)
     // Transmitted bit count will be more than eight times the byte count
-    var megabits = (bitsPerDataByte * data.size/1000000);
+    var megabytes = data.size/1000000;
+    var megabits = (bitsPerDataByte * megabytes);
     var seconds = (data.end - data.begin)/1000;  // millisec
     var megabitsPerSecond = megabits/seconds;
     uploadTotalSeconds += seconds;
@@ -540,36 +587,65 @@ function reportUpload(data){
                 max3Decimal.format(uploadTotalMegabits / uploadTotalSeconds));
     document.getElementById('upMax').innerHTML = max3Decimal.format(uploadMax);
     testReport.write('    Time: ' + formatTimestamp(data.time)
-                + '\n    Megabytes: ' + max3Decimal.format(data.size/1000000)
+                + '\n    Megabytes: ' + max3Decimal.format(megabytes)
                 + '\n    Seconds: ' + max3Decimal.format(seconds)
                 + '\n    Megabits/Second: '
                     + max3Decimal.format(megabitsPerSecond)
                 + '\n');
 }
 
-// do a round (or sequence) of download and upload tests
-async function runTestCycle(){
-    var timestamp = Date.now();
-    disableTestButton()
-    // testReport.write('Starting test cycle\n');
+async function uploadTest()   {
+    var testInfo = null;
+    testReport.write('\nupload:\n');
     try {
-        var downloadSummary = await downloadTest();
-        reportDownload(downloadSummary);
+        testInfo = await upload();
     } catch(e) {
-        testLog.write(JSON.stringify(
-                {'error': 'Download failed',
-                'timestamp': Date.now()}) + '\n');
-        testReport.write('error:\n    Download failed\n');
-        testReport.write('    ' + e.toString() + '\n');
+        return Promise.reject(e);
     }
     try {
-        var uploadSummary = await uploadTest();
-        reportUpload(uploadSummary);
+        await reportUploadToServer(testInfo);
+    } catch(e) {
+        ; // failure has already been reported - still want to report to browser
+    }
+    try {
+            var uploadSummary = {
+            time:   testInfo.clientTimestamp,
+            size:   testInfo.serverReceiveLength,
+            begin:  testInfo.clientRequestBegin,
+            end:    testInfo.clientResponseEnd,
+        }
+        reportUploadToBrowser(uploadSummary);
+    } catch(e) {
+        testReport.write('error:\n    Fziled to report upload to browser.\n');
+        return Promise.reject(e);
+    }
+    return;
+}
+
+// do a round (or sequence) of download and upload tests
+async function runTestCycle()   {
+    disableTestButton()
+    var timestamp = Date.now();
+    // testReport.write('Starting test cycle\n');
+    // Run the download test, report result to web page and to server
+    try {
+        await downloadTest();
     } catch(e) {
         testLog.write(JSON.stringify(
-                {'error': 'Upload failed',
+                {'error': 'Download failed or did not report',
                 'timestamp': Date.now()}) + '\n');
-        testReport.write('error:\n    Upload failed\n');
+        testReport.write('error:\n    Download failed or did not report:\n');
+        testReport.write('    ' + e.toString() + '\n');
+    }
+
+    // Run the upload test, report result to web page and to server
+    try {
+        await uploadTest();
+    } catch(e) {
+        testLog.write(JSON.stringify(
+                {'error': 'Upload failedor did not report',
+                'timestamp': Date.now()}) + '\n');
+        testReport.write('error:\n    Upload failedor did not report:\n');
         testReport.write('    ' + e.toString() + '\n');
     }
     setLastRunTime(timestamp);
