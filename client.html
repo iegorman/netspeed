@@ -301,7 +301,7 @@ async function download()   {
         testInfo.clientReceiveLength = bodylength
         // Download completed.
         testInfo.clientResponseEnd = Date.now();
-        // defer the return until the report to server succeeds or fails
+        testLog.write(JSON.stringify(testInfo) + '\n');
     } catch(e)  {
         // Download failed.
         console.log(e);
@@ -498,7 +498,6 @@ async function upload()   {
     try {
         var reply = await response.json();  // valid reply will be JSON text
         // Upload completed.
-        // testLog.write(JSON.stringify(reply) + '\n');
         testInfo.clientResponseEnd = Date.now();
         testInfo.serverTimestamp = reply.serverTimestamp;
         testInfo.serverRequestBegin = reply.serverRequestBegin;
