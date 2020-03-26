@@ -144,8 +144,7 @@ class Client(object):
         while n > blen:
             yield byt
             n -= blen
-        if n > 0:
-            yield byt[0:n]
+        yield byt[0:n]      # may have zero length
 
     def begin(self):
         '''
@@ -334,9 +333,6 @@ class Client(object):
         print(json.dumps(params) + '\n', file=self._log)
 
         return
-
-    def upreport(self, params):
-        return params
 
     def upload(self, params):
         """

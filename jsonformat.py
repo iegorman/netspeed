@@ -27,6 +27,8 @@ class JsonFormat(object):
         "interval",
         "downloadLength",
         "uploadLength",
+        "clientReceiveLength",
+        "serverReceiveLength",
     )
 
     # millisecond times from Unix epoch

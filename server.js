@@ -38,7 +38,8 @@
       serverResponseEnd:    null,
       downloadLength:       null,
       uploadLength:         null,
-      serverBodyLength:     null,
+      clientReceiveLength:  null,
+      serverReceiveLength:  null,
     }
  */
 
@@ -88,16 +89,12 @@ const range_max = {
 };
 
 
-// asynchronous output streams.
-// same destinations as console.out and console.error, which are synchronous
+// asynchronous output, console.log may be synchronous
+// see  https://nodejs.org/api/process.html#process_a_note_on_process_i_o
+//      https://nodejs.org/api/console.html
 // timestamp any failures to aid in troubleshooting
 const logStream = fs.createWriteStream('/dev/stdout', { autoClose : false });
 logStream.on('error', (err) => {
-  console.error({ errorTime : Date.now() });
-  console.error(err);
-});
-const errorStream = fs.createWriteStream('/dev/stderr', { autoClose : false });
-errorStream.on('error', (err) => {
   console.error({ errorTime : Date.now() });
   console.error(err);
 });
@@ -115,26 +112,30 @@ function makeDatablock()  {
 }
 const datablock = makeDatablock();  // 16,384 bytes
 
-// a Readable to generate meaningles data for large downloads
+// Readable to produce specified amount of meaningless data for large downloads
 //    https://nodejs.org/api/stream.html#stream_implementing_a_readable_stream
-// In node.js 12.3.0 or later, this could be replaced by stream/Readable.from()
+//    https://nodejs.org/en/docs/guides/backpressuring-in-streams/
 class DataStream extends stream.Readable  {
   constructor(size) {   // size of download to send
     super();
     this.n = size;
-    this.b = datablock.length;
+    this.chunk = datablock;
+    this.chunkLength = this.chunk.length;
   }
+
   // function used to request that more data be placed in buffer
   // data is "pushed" into a buffer to make it available from the reader
-  _read(size) {   // recommended size (ignored) for next block of data
-    while (this.n > this.b)  {
-      this.n -= this.b;
-      if (!this.push(datablock))  {   // if (expandable) buffer "full"
-        return;                       //    wait for more data to be read
+  _read(size) {
+    // chunk length > 0, <= unused buffer space, <= available data chunk
+    var len = Math.max(1, Math.min(size, this.chunkLength));
+    while (this.n > len)  {
+      this.n -= len;
+      if (!this.push(this.chunk))  {
+        return;         // buffer temporarily full
       }
     }
-    this.push(datablock.slice(0, this.n));  // last block, may be zero length
-    this.push(null);  // end of data
+    this.push(this.chunk.slice(0, this.n));  // last block, may be zero length
+    this.push(null);  // no more data available
   }
 };
 
@@ -173,8 +174,8 @@ function sendFile(req, res, info, filePath, contentType)  {
   res.setHeader('Content-Type', contentType);
 
   fileStream.on('error', (err) => {
-    // onstall error handler before any other handler
-    errorStream.write(JSON.stringify(err));
+    // install error handler before any other handler
+    console.error(err);
 
   }).on('end', () => {
     res.end();
@@ -201,7 +202,7 @@ function reply_404(req, res, info)  {
 // reply to a request that did not use (required) POST method
 function reply_418Post(req, res, info)  {
   info.error = { 'errorTime' : Date.now(), 'err' : 'POST method required' } 
-  res.statusCode = 418;  // "I'm a teapost"  rfc2324
+  res.statusCode = 418;  // "I'm a teapot"    rfc2324
   res.statusMessage = "This URL requires 'POST' method"; 
   sendPage(req, res, info, e418PostPage);
 };
@@ -236,12 +237,12 @@ function reply_download(req, res, info)  {
   var datastream = new DataStream(downloadLength);
   res.setHeader('Content-Type', 'application/octet');
   datastream.on('error', (err) => {
-    // onstall error handler before any other handler
-    errorStream.write(JSON.stringify(err));
+    // install error handler before any other handler
+    console.error(err);
   }).on('end', () => {
     res.end();
   });
-  datastream.pipe(res);
+  datastream.pipe(res);   // event handler will invoke res.end() 
 };
 
 // reply to a download report from a client
@@ -254,7 +255,6 @@ function reply_downreport(req, res, info)  {
 // reply to a data upload from a client
 function reply_upload (req, res, info, body)  {
   res.setHeader('Content-Type', 'application/json');
-  info.uploadLength = body.size;
   res.write(JSON.stringify(info));
   res.end();
 };
@@ -340,7 +340,7 @@ const server = http.createServer((req, res) => {
     info.serverRequestBegin = timestamp;
     info.serverRequestEnd = requestEnd;
     info.serverResponseBegin = Date.now();
-    info.serverBodyLength = bodyLength;
+    info.serverReceiveLength = bodyLength;
 
     if (pathname == rootPath)  {   // no content expected: GET, PUT, or POST
       reply_slash(req, res, info);
@@ -430,6 +430,6 @@ server.listen(port, hostname, () => {
     scriptpath : scriptpath
   }) + '\n');
   logStream.write(message);
-  errorStream.write(message);
+  console.error(message);
 
 });
