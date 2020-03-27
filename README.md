@@ -50,7 +50,7 @@ The summary reports include calculated upload and download speeds, identifying i
 
 ## Web Page Client
 
-A [web page client](main.html) is sent as a response to a request for the base URL of the server. The client uses the promise-based 'fetch' API, maintains state between requests and:
+A [web page client](client.html) is sent as a response to a request for the base URL of the server. The client uses the promise-based 'fetch' API, maintains state between requests and:
 
 * Begins by requesting initial data from the server
 * At intervals:
