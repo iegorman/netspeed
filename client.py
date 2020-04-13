@@ -29,8 +29,8 @@ class Client(object):
     defaultInterval = 3_600             # seconds
     defaultDownloadLength = 20_000_000  # bytes
     defaultUploadLength = 2_000_000     # bytes
-    defaultReport = sys.stdout          # summary reports and errors
-    defaultLog = sys.stderr             # message log
+    defaultLog = sys.stdout             # message log
+    defaultReport = sys.stderr          # summary reports and errors
 
     # count only the bits in actual data, ignore protocal bits
     # protocol bit are a small proportion of message exceopt in smalll packets
@@ -57,8 +57,8 @@ class Client(object):
         return time.strftime('%Y-%m-%d  %H:%M:%S', time.localtime(seconds))
 
     def __init__(self,  serverURL,
-                        report=defaultReport,
-                        log=defaultLog,
+                        log=defaultLog,             # JSON log of transactions
+                        report=defaultReport,       # human-readable report
                         interval=defaultInterval,
                         downloadLength=defaultDownloadLength,
                         uploadLength=defaultUploadLength,
@@ -180,16 +180,19 @@ class Client(object):
             with urllib.request.urlopen(request) as f:
                 # failure of the next assignments would be a system failure
                 info = json.loads(f.read())
+                self._testID = info["testID"]
                 self._interval = info["interval"]
                 self._downloadLength = info["downloadLength"]
                 self._uploadLength = info["uploadLength"]
                 self._testBegin = info['testBegin']
-                print(info, file=self._log)
+                print(json.dumps(info), file=self._log)
+                self._log.flush()
                 print( 'Begin:\n    Test ID = ' + info['testID']
                         + '\n    External IP = ' + info['externalIP']
                         + '\n    Test Begin Time = '
                             + self.js_clock(info['testBegin'])
                         + '\n', file=self._report)
+                self._report.flush()
         except Exception as e:
             raise RuntimeError('timestamp=' + ': '.join([str(timestamp),
                            'Failed to begin communication with server at',
@@ -247,7 +250,7 @@ class Client(object):
         clientRequestEnd = 0
         clientResponseBegin = 0
         clientResponseEnd = 0
-        downloadLength = 0
+        clientReceiveLength = 0
         try:
             # prepare the request
             content = bytes(json.dumps(params), 'utf-8')
@@ -271,11 +274,11 @@ class Client(object):
                 clientResponseBegin = self.js_time()
                 size = len(f.read(1024))
                 while size > 0:
-                    downloadLength += size
-                    size = len(f.read(1024))
+                    clientReceiveLength += size
+                    size = len(f.read(16_384))
             clientResponseEnd = self.js_time()
             # update the information and return it
-            params.setdefault('downloadLength', downloadLength)
+            params.setdefault('clientReceiveLength', clientReceiveLength)
             params.setdefault('clientRequestBegin', clientRequestBegin)
             params.setdefault('clientRequestEnd', clientRequestEnd)
             params.setdefault('clientResponseBegin', clientResponseBegin)
@@ -314,9 +317,10 @@ class Client(object):
         params = self.download(params)
 
         # computer-readable JSON report
-        print(json.dumps(params) + '\n', file=self._log)
+        print(json.dumps(params), file=self._log)
+        self._log.flush()
         # human-readable repot
-        megabytes = math.floor(params['downloadLength'] / 1_000) / 1_000
+        megabytes = math.floor(params['clientReceiveLength'] / 1_000) / 1_000
         seconds = (params['clientResponseEnd']
                         - params['clientResponseBegin']) / 1_000
         print( 'Download\n    Time: '
@@ -326,11 +330,13 @@ class Client(object):
                 + '\n    Megabits / Second: ' + str(round(
                     (self.bitsPerDataByte * megabytes / seconds), 3))
                 + '\n', file=self._report)
+        self._report.flush()
 
         params = self.reportToServer(params, self._downreportPath)
 
         # computer-readable JSON report
-        print(json.dumps(params) + '\n', file=self._log)
+        print(json.dumps(params), file=self._log)
+        self._log.flush()
 
         return
 
@@ -349,7 +355,7 @@ class Client(object):
         clientRequestEnd = 0
         clientResponseBegin = 0
         clientResponseEnd = 0
-        uploadLength = 0
+        clientReceiveLength = 0
         try:
             # prepare the request
             url = self.serverURL + self._uploadPath
@@ -372,11 +378,11 @@ class Client(object):
                 clientResponseBegin = self.js_time()
                 size = len(f.read(1024))
                 while size > 0:
-                    uploadLength += size
+                    clientReceiveLength += size
                     size = len(f.read(1024))
             clientResponseEnd = self.js_time()
             # update data report and print as JSON to the log
-            params.setdefault('uploadLength', uploadLength)
+            params.setdefault('clientReceiveLength', clientReceiveLength)
             params.setdefault('clientRequestBegin', clientRequestBegin)
             params.setdefault('clientRequestEnd', clientRequestEnd)
             params.setdefault('clientResponseBegin', clientResponseBegin)
@@ -416,7 +422,8 @@ class Client(object):
         params = self.upload(params)
 
         # computer-readable JSON report
-        print(json.dumps(params) + '\n', file=sys.stderr)
+        print(json.dumps(params), file=self._log)
+        self._log.flush()
         # human-readable repot
         megabytes = math.floor(params['uploadLength'] / 1_000) / 1_000
         seconds = (params['clientResponseEnd']
@@ -428,11 +435,13 @@ class Client(object):
                 + '\n    Megabits / Second: ' + str(round(
                     (self.bitsPerDataByte * megabytes / seconds), 3))
                 + '\n', file=self._report)
+        self._report.flush()
 
         params = self.reportToServer(params, self._upreportPath)
 
         # computer-readable JSON report
-        print(json.dumps(params) + '\n', file=self._log)
+        print(json.dumps(params), file=self._log)
+        self._log.flush()
 
         return
 
@@ -443,19 +452,13 @@ class Client(object):
         self.downloadTest()
         self.uploadTest()
 
-    def repeat_test_cycle(self):
-        """
-        Repeat a cycle of tests at intervals.
-        """
-        self.run_test_cycle()
-
     def run(self):
         """
         Invoke startup and ongoing test runs.
         """
+        self.begin()
         while True:
-            self.begin()
-            self.repeat_test_cycle()
+            self.run_test_cycle()
             time.sleep(self._interval)
 
 if __name__ == "__main__":
@@ -467,6 +470,7 @@ if __name__ == "__main__":
 
     def printerr(s):
         print(s, file=sys.stderr)
+        sys.stderr.flush()
 
     if len(argv) < 1 or '-h' in opt or '--help' in opt:
         printerr("Usage: " + sys.argv[0] + " host[:port] [options]")
@@ -483,6 +487,8 @@ if __name__ == "__main__":
               + " (default = size set by server)")
         printerr("     --upload=n     number of bytes to upload"
               + " (default = size set by server)")
+        printerr("   JSON log goes to stdout")
+        printerr("   Human-readable report goes to stderr")
         printerr("   See script for details")
         exit(1)
 #    testid = (int(opt["--testid"]) if "--testid" in opt
