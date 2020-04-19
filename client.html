@@ -38,17 +38,26 @@
         -->
         <title>NCF Repetitive Line Speed Test</title>
         <script>
-// javascript client side for repeated internet speed tests
-    /* <![CDATA[        HTML parsing disabled.
-       Can use '<', '>', '&' in code, instead of '&lt;', '&gt;' and '&amp;'.
-     */
+// javascript parsing begins
+/*  <![CDATA[     disable HTML parser
+    In HTML5, it is not necessary to declare a CDATA section inside a <script>
+    element, but doing so will avoid error messages in some validating HTNL5
+    editors.  HTML entities will not work properly inside a CDATA section.
+      https://www.w3schools.com/tags/tag_script.asp
+      https://html.spec.whatwg.org/multipage/syntax.html#cdata-sections
+      https://developer.mozilla.org/en-US/docs/Web/API/CDATASection
+  */
 
 'use strict';
 
 /*
   The client and server exchange JSON strings that represent javascript objects.
   The attributes of each object will be a subset of the attributes in the
-  object shown in comments at the top of file './server.js'.
+  object shown in comments at the top of file './server.js'.  The JSON strings
+  will be less than 1K in length.
+
+  The data download from the server and the data upload to the server are not
+  in JSON format.  The uploads and downloads may be very large.
  */
 
 // URLs relative to server
@@ -657,10 +666,10 @@ function Main()  {
     beginTest().then(() => runTestCycle());
 }                       // exit, everything else is done by events and handlers
 
-    /* Use '&lt;', '&gt;' and '&amp;' to represent literal '<', '>', '&'.
-        ]]>         HTML parsing enabled
-     */
-// javascript client side for repeated internet speed tests
+/*  ]]>          End CDATA section, enable HTML5 parser.
+    See note with CDATA declaration above.
+  */
+// javascript parsing ends
         </script>
     </head>
     <body onload="Main()">
