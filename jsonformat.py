@@ -29,6 +29,8 @@ class JsonFormat(object):
         "uploadLength",
         "clientReceiveLength",
         "serverReceiveLength",
+        "downloadReceiveLength",
+        "uploadReceiveLength",
     )
 
     # millisecond times from Unix epoch
@@ -46,6 +48,11 @@ class JsonFormat(object):
         "serverRequestEnd",
         "serverResponseBegin",
         "serverResponseEnd",
+    )
+
+    # more stuff, miscellaneous, not alwasys present
+    appendix = (
+        "error",
     )
 
     @classmethod
@@ -87,8 +94,10 @@ class JsonFormat(object):
         if isJsonFormat:    # JSON
             writeDict = cls.JsonWriter(writer).writeDict
         else:               # CSV
-            writeDict = cls.CsvWriter(writer, cls.testInfo, cls.times
-                                        ).writeDict
+            names = list(cls.testInfo)
+            names.extend(list(cls.times))
+            names.extend(list(cls.appendix))
+            writeDict = cls.CsvWriter(writer, names).writeDict
         try:
             # create and output dictionary from eadh input line (JSON literal)
             line = lineReader.readline(MaxJsonLength)
@@ -114,6 +123,9 @@ class JsonFormat(object):
                             # human-readable local date and time
                             newdict.setdefault(name,
                                                 cls.formatTime(value[name]))
+                for name in cls.appendix:
+                    if name in value:
+                        newdict.setdefault(name, value[name])
                 if isJsonFormat:
                     # names not listed in CSV headings
                     # Copy as-is to JSON, but not to CSV
@@ -137,10 +149,9 @@ class JsonFormat(object):
         Output uses minimal CVS quoting, quoting only the strings that
         contain characters that have special meaning to CSV.
         """
-        def __init__(self, writer, testInfo, times):
+        def __init__(self, writer, names):
             self.csvwriter = csv.writer(writer)
-            self.names = list(testInfo)
-            self.names.extend(list(times))      # names of expected fields
+            self.names = names
             field = []      # column headings of expected fields
             for name in self.names:
                 field.append(name)

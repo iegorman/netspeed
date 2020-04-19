@@ -10,11 +10,20 @@
 /*
   The client maintains state between requests, but the server does not.
 
+  Memory requirements are almost independed of upload and download sizes.
+  Download data is provided from a stream.Reader that produces any amount of
+  data.  Upload data is discarded, except for a small amount sufficient to hold
+  any expected JSON data.
+
   The server and client communicate by sending JSON objects back and forth.
   No message is sent to the client in response to a download request because
   the body of the response is the download data.
   No message is sent from the client in an upload request because the body of
   the request is the upload data.
+
+  The server is expected to keep running no matter what request it redeives and
+  may not give the client full information about why a request failed. The
+  server reports failures to a local log.
 
   The JSON objects are similar to this one, but may not have all the attributes
   shown:
@@ -40,6 +49,9 @@
       uploadLength:         null,
       clientReceiveLength:  null,
       serverReceiveLength:  null,
+      downloadReceiveLength: null,
+      uploadReceiveLength:  null,
+      error:                null,
     }
  */
 
@@ -52,6 +64,7 @@ const stream = require('stream');
 
 const hostname = '0.0.0.0';
 const port = 8080;
+const jsonLengthLimit = 2048;   // max length of JSON text in a POST body
 
 // URLs relative to server
 // See request 'end' event in http.createServer() 
@@ -68,26 +81,9 @@ const scriptpath = module.filename ? module.filename : null;
 const scriptdir = path.dirname(scriptpath)  // throw exception if no path
 const clientPage = new URL('file://' + path.resolve(scriptdir, 'client.html'));
 const echoPage = new URL('file://' + path.resolve(scriptdir, 'echo.html'));;
+const e400Page = new URL('file://' + path.resolve(scriptdir, 'e400.html'))
 const e404Page = new URL('file://' + path.resolve(scriptdir, 'e404.html'))
 const e418PostPage = new URL('file://' + path.resolve(scriptdir, 'e418.html'))
-
-// defaults and range limits for numeric values
-const default_config = {
-  downloadLength  : 1000,       // 0000,
-  uploadLength    : 120,        // 0000,
-  interval        : 36          // 00
-};
-const range_min = {
-  downloadLength  : 100,  //0000,
-  uploadLength    : 50,   //0000,
-  interval        : 6     //0
-};
-const range_max = {
-  downloadLength  : 50000000,
-  uploadLength    : 10000000,
-  interval        : 14400
-};
-
 
 // asynchronous output, console.log may be synchronous
 // see  https://nodejs.org/api/process.html#process_a_note_on_process_i_o
@@ -147,26 +143,6 @@ function showRequest(req, res, info)  {
   res.write(JSON.stringify(req.socket.remoteAddress) + '\n');
 }
 
-function checkInfoRange(info) {
-  // default test parameters if not set by client, or if out-of-range
-  for (let name in default_config)  {  // fix missing or out-of-range items
-    if (info[name] == null
-        || ! isNaN(parseInt(default_config[name]))
-        && isNaN(parseInt(info[name]))) {
-      info[name] = default_config[name];
-    }
-    if (! isNaN(parseInt(default_config[name])))  { // for numeric values
-      if (info[name] < range_min[name]) {           // check not too low
-        info[name] = range_min[name];
-      }
-      if (info[name] > range_max[name]) {           // check not too high
-        info[name] = range_max[name];
-      }
-    }
-  }
-  return info;    // is original reference, to modified object
-}
-
 // send a file as a complete reply
 function sendFile(req, res, info, filePath, contentType)  {
   const fileStream = fs.createReadStream(filePath)
@@ -192,16 +168,21 @@ function sendPage(req, res, info, pagePath) {
   sendFile(req, res, info, pagePath, 'text/html');
 }
 
+// reply to a request with invalid or unacceptable data
+function reply_400(req, res, info)  {
+  res.statusCode = 400;
+  sendPage(req, res, info, e400Page);
+};
+
 // reply to a request for page that does not exist
 function reply_404(req, res, info)  {
-  info.error = { 'errorTime' : Date.now(), 'err' : 'NotFound' } 
   res.statusCode = 404;
   sendPage(req, res, info, e404Page);
 };
 
 // reply to a request that did not use (required) POST method
 function reply_418Post(req, res, info)  {
-  info.error = { 'errorTime' : Date.now(), 'err' : 'POST method required' } 
+  info.error = '418 POST method required';
   res.statusCode = 418;  // "I'm a teapot"    rfc2324
   res.statusMessage = "This URL requires 'POST' method"; 
   sendPage(req, res, info, e418PostPage);
@@ -222,10 +203,11 @@ function reply_echo(req, res, info)  {
 function reply_begin(req, res, info)  {
   res.setHeader('Content-Type', 'application/json');
   // default test identifier if not set by client
-  info.testID = (info.externalIP + '-' + info.serverTimestamp + '-'
+  if (! info.testID) {
+    info.testID = (info.externalIP + '-' + info.serverTimestamp + '-'
                       + ('00' + Math.floor(Math.random() * 1000)).slice(-3));
+  }
   info.testBegin = info.serverTimestamp;
-  checkInfoRange(info);
   res.write(JSON.stringify(info));
   res.end();
   // info will be written to logStream when the response is finished.
@@ -234,6 +216,10 @@ function reply_begin(req, res, info)  {
 // reply to a data download request, send requested length of meaningless data
 function reply_download(req, res, info)  {
   var downloadLength = parseInt(info.downloadLength);
+  if (isNaN(downloadLength) || downloadLength < 1)  {
+    info.error = '400 Invalid length for download';
+    return reply_400(req, res, info); // null return but will invoke res.end() 
+  }
   var datastream = new DataStream(downloadLength);
   res.setHeader('Content-Type', 'application/octet');
   datastream.on('error', (err) => {
@@ -253,8 +239,9 @@ function reply_downreport(req, res, info)  {
 };
 
 // reply to a data upload from a client
-function reply_upload (req, res, info, body)  {
+function reply_upload (req, res, info)  {
   res.setHeader('Content-Type', 'application/json');
+  info.uploadReceiveLength = info.serverReceiveLength
   res.write(JSON.stringify(info));
   res.end();
 };
@@ -327,7 +314,11 @@ const server = http.createServer((req, res) => {
         info = JSON.parse(body);  // replace empty info with incoming content
       }
       catch(error)  {
-        info.error = 'Incoming data was not valid JSON';
+        info.externalIP = req.socket.remoteAddress;
+        info.serverTimestamp = timestamp;
+        info.pathname = pathname;
+        info.error = '400 Incoming data was not valid JSON';
+        return reply_400(req, res, info);   // null
       }
     }
     if (info.externalIP && info.externalIP != req.socket.remoteAddress) {
@@ -371,7 +362,7 @@ const server = http.createServer((req, res) => {
     }
     else if (pathname == uploadPath)  {
       if (req.method == 'POST')  {   // content is in body
-        reply_upload(req, res, info, body);
+        reply_upload(req, res, info);
       } else {
         reply_418Post(req, res, info);
       }
@@ -384,6 +375,7 @@ const server = http.createServer((req, res) => {
       }
     }
     else {
+      info.error = '404 Page Not Found';
       reply_404(req, res, info);
     }
 
@@ -391,10 +383,13 @@ const server = http.createServer((req, res) => {
     // should be last handler because this one puts readStream in "flow mode"
     // other handlers should be in place before input (flow mode) begins
 
-    // count incoming POST bytes, discard if large upload
-    // Note that upload content should not be JSON.
+    // count incoming POST bytes, keep only enough bytes for expected JSON data
+    // Note that upload content should not be JSON, all will be discarded
     //See the request 'end' event for details.
-    if (pathname != uploadPath) { // keep POST (or PUT) data except for upload
+    var headers = req.headers;    // req.getHeader "not a function".
+    var contentType = headers['content-type'];  // may be undefined or null
+    if (contentType && contentType.startsWith('application/json')
+                    && bodyLength < jsonLengthLimit)   {
       bodychunks.push(chunk)
     }
     bodyLength += chunk.length;        // count bytes for all data
