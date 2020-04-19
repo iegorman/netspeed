@@ -182,7 +182,6 @@ function reply_404(req, res, info)  {
 
 // reply to a request that did not use (required) POST method
 function reply_418Post(req, res, info)  {
-  info.error = '418 POST method required';
   res.statusCode = 418;  // "I'm a teapot"    rfc2324
   res.statusMessage = "This URL requires 'POST' method"; 
   sendPage(req, res, info, e418PostPage);
@@ -252,6 +251,16 @@ function reply_upreport(req, res, info)  {
   res.write(JSON.stringify(info));
   res.end();
 };
+
+// make a specified reply to a POST request from a client
+function reply_POST(reply_function, req, res, info)  {
+  if (req.method == 'POST')  {   // content is in body
+    reply_function(req, res, info);
+  } else {
+    info.error = '418 POST method required';
+    reply_418Post(req, res, info);
+  }
+}
 
 const server = http.createServer((req, res) => {
 
@@ -340,39 +349,19 @@ const server = http.createServer((req, res) => {
       reply_echo(req, res, info);
     }
     else if (pathname == setupPath)  {
-      if (req.method == 'POST')  {   // content is in body
-        reply_begin(req, res, info);
-      } else {
-        reply_418Post(req, res, info);
-      }
+      reply_POST(reply_begin, req, res, info);
     }
     else if (pathname == downloadPath)  {
-      if (req.method == 'POST')  {   // content is in body
-        reply_download(req, res, info);
-      } else {
-        reply_418Post(req, res, info);
-      }
+      reply_POST(reply_download, req, res, info);
     }
     else if (pathname == downreportPath)  {
-      if (req.method == 'POST')  {   // content is in body
-        reply_downreport(req, res, info);
-      } else {
-        reply_418Post(req, res, info);
-      }
+      reply_POST(reply_downreport, req, res, info);
     }
     else if (pathname == uploadPath)  {
-      if (req.method == 'POST')  {   // content is in body
-        reply_upload(req, res, info);
-      } else {
-        reply_418Post(req, res, info);
-      }
+      reply_POST(reply_upload, req, res, info);
     }
     else if (pathname == upreportPath)  {
-      if (req.method == 'POST')  {   // content is in body
-        reply_upreport(req, res, info);
-      } else {
-        reply_418Post(req, res, info);
-      }
+      reply_POST(reply_upreport, req, res, info);
     }
     else {
       info.error = '404 Page Not Found';

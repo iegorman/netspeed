@@ -186,31 +186,26 @@ if __name__ == "__main__":
     argv = cmdline[1]
     opt = dict(cmdline[0])
 
+    def printerr(s):
+        print(s, file=sys.stderr)
+        sys.stderr.flush()
+
     if len(argv) > 1 or '-h' in opt or '--help' in opt:
-        print("Usage: " + sys.argv[0] + " [-h|--help] [--raw] [filename]",
-                file=sys.stderr)
-        print("       Convert simple JSON format to CSV format",
-                file=sys.stderr)
-        print("       Input: JSON name-value pairs, one JSON per line",
-                file=sys.stderr)
-        print("       Output: CSV file with reordered JSON names as headings",
-                file=sys.stderr)
-        print("               or JSON file with reordered JSON names",
-                file=sys.stderr)
-        print("       Unexpected JSON items will be omitted from CSV output",
-                file=sys.stderr)
-        print("   Options:",
-                file=sys.stderr)
-        print("       -h|--help     print this message",
-                file=sys.stderr)
-        print("       --json        output JSON instead of CSV",
-                file=sys.stderr)
-        print("       --raw         do not format times",
-                file=sys.stderr)
-        print("   Input times are interpreted as milliseconds from Unix epoch",
-                file=sys.stderr)
-        print("   See script for details",
-                file=sys.stderr)
+        printerr("Usage: " + sys.argv[0] + " [-h|--help] [--raw] [filename]")
+        printerr("       Convert simple JSON format to CSV format")
+        printerr("       Input: JSON name-value pairs, one JSON per line")
+        printerr("       Output: CSV file with reordered JSON names as" +
+                 " headings")
+        printerr("               or JSON file with reordered JSON names")
+        printerr("       Unexpected JSON items will be omitted from CSV" +
+                 " output")
+        printerr("   Options:")
+        printerr("       -h|--help     print this message")
+        printerr("       --json        output JSON instead of CSV")
+        printerr("       --raw         do not format times")
+        printerr("   Input times are interpreted as milliseconds from Unix" +
+                 " epoch")
+        printerr("   See script for details")
         exit(1)
 
     isRaw = ('--raw' in opt)
