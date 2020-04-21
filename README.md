@@ -15,7 +15,7 @@ The package has one server and two clients:
 
 The javascript server runs in node.js 12.x and may run in earlier versions.
 
-The web page client uses [Bootstrap](https://getbootstrap.com/) and requires a browser that supports HTML5 and javascript ES 6.  This client runs in current versions of Google Chrome, Firefox, and Microsoft Edge.  It may also run in other browsers.
+The web page client requires a browser that supports HTML5 and javascript ES 6.  This client runs in current versions of Google Chrome, Firefox, and Microsoft Edge.  It may also run in other browsers, or older versions.
 
 The command line client runs in Python 3.7.
 

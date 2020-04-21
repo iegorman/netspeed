@@ -9,34 +9,34 @@
   -->
 <html>
     <head>
+        <title>NCF Repetitive Line Speed Test</title>
         <style>
+            body    {
+                margin-left: 10;
+                margin-right: 10
+            }
+            button  {
+                border: 2px solid black;
+            }
             /* Table titles centered in headings, right-aligned in body */
+            th, td  {
+                padding: 5
+            }
+            thead th {
+                text-align: center
+            }
+            thead td {
+                text-align: right;
+                font-weight: bold
+            }
             tbody th {
-                text-align:right
+                text-align: right
             }
             /* Table data right-aligned in body */
             tbody td {
-                text-align:right
+                text-align: right
             }
         </style>
-        <!-- Bootstrap stylesheet support https://getbootstrap.com/ -->
-        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css"
-            integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T"
-            crossorigin="anonymous">
-        <!--
-            Bootstrap is used to control layout via CSS, and by attaching styles
-            the <DIV> elements via their CLASS attribute.
-            Various parts of the page (and the corresponding elements) are laid
-            out in nested <DIV> elements, using column groups inside row groups.
-            If the display is wide enough, the the columns are laid out side by
-            side as one group.  If not, the columns are broken into groups of
-            fewer columns, and the groups are laid out vertically.
-            Bootstrap is also used to modify table formats.
-            Chareristics of some indivual elements are managed by definitions
-            in the <STYLE> element above, or in the STYLE attribute of the
-            element. 
-        -->
-        <title>NCF Repetitive Line Speed Test</title>
         <script>
 // javascript parsing begins
 /*  <![CDATA[     disable HTML parser
@@ -151,8 +151,8 @@ function setLastRunTime(time)   {
 }
 
 /* Set next runtime as offset from current time. This cancels the previously
-   scheduled next test but the user can click on the 'Start next Test' button to get an
-   immediate test. */
+   scheduled next test but the user can click on the 'Start next Test' button
+   to get an immediate test. */
 function scheduleNextTestCycle()   {
 /* Test Messages */
     clearTimeout(timeoutNextRunTime);
@@ -676,13 +676,7 @@ function Main()  {
         <script>
             console.log('body load started');
         </script>
-<div style="margin-left: 5px">
-    <div class="row">
-        <div class="col-md-4"></div>
-        <div class="col-md-8">
         <h1>NCF Repetitive Internet Speed Test</h1>
-        </div>
-    </div>
         <p>This page repeats a sequence of upload and download tests at
             intervals, and reports a summary of the entire sequence of tests.
             Repeated tests may be able to expose intermittently low speeds.
@@ -705,10 +699,8 @@ function Main()  {
                 than the speed of your internet connection.
             </li>
         </ul>
-        <div class="row">
-            <div class="col-md-5">
             <h2>Test Information</h2>
-            <table class="table-condensed">
+            <table>
                 <tbody>
                     <tr>
                         <th>External IP address</th>
@@ -724,13 +716,9 @@ function Main()  {
                     </tr>
                     </tbody>
             </table>
-            </div>
-        </div>
-<hr>
-    <div class="row">
-        <div class="col-md-5">
+        <hr>
         <h2>Test Configuration</h2>
-        <table class="table-condensed">
+        <table>
             <tbody>
                 <tr>
                     <th>Download size</th>
@@ -777,8 +765,6 @@ function Main()  {
                 </tr>
             </tbody>
         </table>
-        </div>
-        <div class="col-md-5">
         <p>Notes</p>
         <ul>
             <li>"Not recommended" choices are intended for testing in special circumstances. </li>
@@ -787,13 +773,9 @@ function Main()  {
             <li>Changing the interval changes the time of the next test.  Clicking the button below 
                 will start a new test.</li>
         </ul>
-        </div>
-    </div>
-<hr>
-    <div class="row">
-        <div class="col-md-5">
-        <h2>Test History</h2>
-        <table class="table-condensed">
+        <hr>
+\        <h2>Test History</h2>
+        <table>
             <thead>
                 <tr>
                     <th colspan="3">
@@ -802,8 +784,8 @@ function Main()  {
                 </tr>
                 <tr>
                     <th></th>
-                    <th>Download</th>
-                    <th>Upload</th>
+                    <td>Download</td>
+                    <td>Upload</td>
                 </tr>
             </thead>
             <tbody>
@@ -829,20 +811,14 @@ function Main()  {
                 </tr>
             </tbody>
         </table>
-        </div>
-        <div class="col-md-5">
         <p>Note</p>
         <ul> 
             <li>The number of bits in a download or upload is about 9 to 10 times the number of
                 bytes. </li>
             <li>The speeds shown may over-estimate or under-estimate the actual speeds. </li>
         </ul>
-        </div>
-    </div>
-<hr>
-    <div class="row">
-        <div class="col-md-5">
-        <table class="table-condensed">
+        <hr>
+        <table>
             <thead>
                 <tr>
                     <th colspan="2">Test Runs</th>
@@ -867,25 +843,22 @@ function Main()  {
                 </tr>
             </tbody>
         </table>
-<hr>
- <!-- Button disabled to prevent start of test cycle during initialization -->
- <button id="testButton" type="button" class="btn btn-primary btn-sm"
-     disabled onclick="runTestCycle();">
- </button>
-        </div>
-    </div>
-<hr>
+        <hr>
+        <!-- Button disabled to prevent start of test cycle during initialization -->
+        <button id="testButton" type="button" disabled onclick="runTestCycle();">
+        </button>
+        <hr>
         <h2>Test Report
         </h2>
         <pre id="testReport"
             style="border:2px solid;height:200px;overflow:scroll;"
             ></pre>
-<hr>
+        <hr>
         <h2>Test Log
         </h2>
         <pre id="testLog"
             style="border:2px solid;height:300px;overflow:scroll;"
             ></pre>
-</div>
+
     </body>
 </html>
