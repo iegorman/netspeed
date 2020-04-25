@@ -21,6 +21,8 @@ const queryToObject = (query) => {
   return paramobject
 };
 
+//  https://nodejs.org/es/docs/guides/anatomy-of-an-http-transaction/
+//  https://nodejs.org/api/http.html
 const server = http.createServer((request, response) => {
   // const { headers, method, url } = request;
   const url = new URL('http://' + hostname + request.url);
@@ -66,6 +68,10 @@ const server = http.createServer((request, response) => {
   });
 });
 
+//  https://nodejs.org/api/http.html#http_server_listen
+//  https://nodejs.org/api/net.html#net_server_listen
+//  server.listen([port[, host[, backlog]]][, callback]) for TCP servers
+//  server.listen(port, host, callback)
 server.listen(port, hostname, () => {
   console.log(`Server running at http://${hostname}:${port}/`);
 });
