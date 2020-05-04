@@ -76,13 +76,13 @@ When a HTTP request comes in from a client, the server
 
 The server function
 * gets some data from the _request_ URL
-* installs an _'error'_ event handler on the _response_ object to report errors (we hope there won't be any)
-* installs an _'end'_ event handler on the _response_ object to send a _response_ to the client after all the data has been read from the _request_ object
-* installs a _'data'_ event handler on the _response_ object to receive chunks of data as they become avaialble
+* installs an _'error'_ event handler on the _request_ object to report errors (we hope there won't be any)
+* installs an _'end'_ event handler on the _request_ object to send a _request_ to the client after all the data has been read from the _request_ object
+* installs a _'data'_ event handler on the _request_ object to receive chunks of data as they become avaialble
 * exits
 
 The server function is an _asynchronous_ function because
-* Installation of the _'data'_ handler on the _response_ object causes the _response_ to start firing zero or more _'data'_ events, followed by an _'end'_ event, after the server function has exited.
+* Installation of the _'data'_ handler on the _request_ object causes the _request_ to start firing zero or more _'data'_ events, followed by an _'end'_ event, after the server function has exited.
 * Each event invokes the corresponding event handler to carry out the activity required by that event.
 
 After the _asynchronous_ server function exits
