@@ -8,28 +8,40 @@ I learned to use javascript in the same way that I learned to use assembly, Fort
 
 ## Overview
 
-Javascript is a language that supports conccurrency, but unlike some other languages, does not require you to know very much about the details of managing concurrent operations. This makes Javascript very useful for programs in web servers that must respond to a number of simultaneous but unrelated requests, and in web browsers that must respond to many other needs while building or modifying a particular web page.
+Web applications require a number of things to happen simultaneously.  At the front end, a user may be entering data or clicking a button while a data download is in progress.  At the back end, a request from a second client may arrive while work is in progress on a request from the first client.  At both ends, a computer has more than enough power to handle everything, but must be able to shift to another activity when any one activity is stalled (for example, by waiting for another chunk of data to arrive over a network connection).
 
-Concurrency (as in "multi-tasking" and "multi-threading") allows a computer to keep a number of different activities going on at the same time.  Although it looks like everything is happening at once, the computer normally manages this by taking turns with each activity, moving one activity along a little bit before working on the next activity.
+Modern computers with multiple processors can do several activities concurrently, but they manage a much larger number of activities with apparent concurrency by moving each activity forward a little before changing to another to move that one forward a little.  Computers do this so quickly that everything seems to happen at once and everything gets done.  Javascript makes it easy for a developer to use this second form of concurrency (actually, apparent concurrency) in web applications.
 
-Web applications require concurrency.  At the front end, a user may be entering data or clicking a button while a data download is in progress.  At the back end, a request from a second client may arrive while work is in progress on a request from the first client.  At both ends, a computer has more than enough power to handle everything, but must be able to shift to another activity when any one activity is stalled (for example, by waiting for another chunk of data to arrive over a network connection).
+Javascript allows a developer to manage concurrent activities with less technical knowledge than would be required in assembly, C, Java, or Python.  But, at a minimum, a developer must still understand the difference between a synchronouse function and an asynchronous function, and how asynchronous functions are used in javascript.
 
-Modern computer applications can handle large numbers of activities, changing from one to another so quickly that everything seems to happen at once and everything gets done.  Javascript is a very convenient programming language for developing that kind of application, because the language is designed for easy management of concurrent activities.
+_Synchronous functions_ do all their work before they return and can return the result (if any) of their work.  This is the kind of function I have used in other programming languages.
 
-Javascript supports an _asynchrronous_ approach to concurrent programming:
+_Asysnchronous functions_ set up some work to be done and return before the work is completed (possibly before the work is even started).  They cannot return the result of their work and a developer has to get that result in some other way.  They cannot throw exceptions because most, if not all, errors will occur after the function has returned; errors must be reported in another way.
+
+In javascript an _asynchronous function_ works like this:
 * Set up an activity
 * Provide a way to get the resuts of that activity at some later time
+* Provide a way to get any error reports that may be required
 * Start the activity
 * Leave the activity and go on to other activities while the first activity runs in the backgound
-* Use the result of the first activity later, when that activity has completed
+* Use the result of the first activity later, when that activity has completed, or do whatever is necessary when the activity has failed
+
+The last part is done via _callback functions_ (aka _event handlers_) that are invoked when something (aka an _event_) happens that the asychronous function needs to teport to the original caller.
+
+When one activity requires the result of another, the first activity must be postponed (i.e. stalled) until the result of the second activity becomes available.
+
+Although there is [more](#technical-notes) to javascript, the information above is enough to understand the following example:
 
 ## An Example of Event-Based Programming
 
-The server [boomerang.js](boomerang.js) illustrates the older (_events_ and _event handlers_) of two ways that javascript supports concurrent programming.  A HTTP request from a client starts a sequence of operations in the server that ends with sending a response back to the client.
+The server [boomerang.js](boomerang.js) illustrates one of the ways that javascript supports concurrent programming.  A HTTP request from a client starts a sequence of operations in the server that ends with sending a response back to the client.
 
 ### Some Useful Information
 
-For this example, all you need to know about [events and event handlers](#events-and-event-handlers) is that javascript can trigger (or _"fire"_) a named _event_ each time something happens, and will invoke a function (the _event handler_) to do something about whatever happened.  The name identifies a particular kind of event, such as data becoming available, or reaching the end of some data.
+For this example, all you need to know about [events and event handlers](#events-and-event-handlers) is:
+* Javascript can trigger (or _"fire"_) a named _event_ each time something happens.
+* Each _event_ will invoke a corresponding _callback_ function (the _event handler_) to do something about whatever happened.
+* The _event name_ identifies a particular kind of _event_, such as data becoming available, or reaching the end of some data.
 
 Javascript allows you te define un-named (anonymous) functions by using the _arrow function_ notataion to associate an argument list with the corresponding function body:
 
@@ -64,24 +76,26 @@ When a HTTP request comes in from a client, the server
 
 The server function
 * gets some data from the _request_ URL
-* installs an _'error'_ event handler to report errors (we hope there won't be any)
-* installs an _'end'_ event handler to send a _response_ to the client after all the data has been read from the _request_ object
-* installs a _'data'_ event handler to receive chunks of data as they become avaialble
+* installs an _'error'_ event handler on the _response_ object to report errors (we hope there won't be any)
+* installs an _'end'_ event handler on the _response_ object to send a _response_ to the client after all the data has been read from the _request_ object
+* installs a _'data'_ event handler on the _response_ object to receive chunks of data as they become avaialble
 * exits
 
-After the server function exits
-* the first _'data'_ event occurs (if there is any data) and invokes the _'data'_ handler to collect and saves a chunk of data
-* _'data'_ events occur until all the data has been saved
-* the '_end_' event occurs when there is no more data and the _'end'_ event handler
-  * sorts the request headers by name and writes them to the _response_ object
-  * collects and writes other information to the _response_ object
-  * joins the chunks saved by the _'data'_ event handler into one large block and writes the block to the _response_ object
-  * ends the _reponse_ object, so that the completed response will be sent to the client
-  * exits
+The server function is an _asynchronous_ function because
+* Installation of the _'data'_ handler on the _response_ object causes the _response_ to start firing zero or more _'data'_ events, followed by an _'end'_ event, after the server function has exited.
+* Each event invokes the corresponding event handler to carry out the activity required by that event.
 
-At this point, the server has completed all work on that particular HTTP request.
+After the _asynchronous_ server function exits
+* _'data'_ events occur and invokes the _'data'_ handler to collect and store chunks until all the data has been saved
+* the '_end_' event occurs and invokes the _'end'_ event handler to:
+  * sort the request headers by name and write them to the _response_ object
+  * collect and write other information to the _response_ object
+  * join the chunks saved by the _'data'_ event handler into one large block and write the block to the _response_ object
+  * end the _reponse_ object, so that the completed response will be sent to the client
 
-Since the work proceeds in separate discrete stages, other HTTP requests could come in and be in progress before work on the first request is completed.  Thus each request can be handled in short steps and the server can be working on several requests, each in turn, from different clients at the same time.
+When the _'end'_ event handler exits, all work on that particular HTTP request has completed.
+
+Since the work proceeds in separate discrete stages, other HTTP requests could come in and be in progress before work on the first request is completed.  Thus each request can be handled in short steps and the server can be working on several requests, each in turn, from different clients at the same time.  The switches from one activity to another happen so quickly that all reguests appear to be hanled simultaneously.
 
 ## Technical Notes
 
